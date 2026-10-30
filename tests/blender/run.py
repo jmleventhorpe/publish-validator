@@ -1,29 +1,24 @@
-"""Integration tests that run inside Blender.
+"""Tests that run inside Blender:
 
     blender -b --factory-startup --python-exit-code 1 --python tests/blender/run.py
 
-Each ``test_*`` function gets a fresh empty scene. Exits non-zero on failure.
+Each test_ function starts from an empty scene. Exits with code 1 if any test fails.
 """
 
 import sys
 import traceback
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
+REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "src"))
 
 import bpy  # noqa: E402
 
-from publish_validator import Component, Status, Validator, format_text  # noqa: E402
+from publish_validator import FAILED, FIXED, PASSED, Component, Validator  # noqa: E402
 from publish_validator.cli import main as cli_main  # noqa: E402
-from publish_validator.hosts import get_host  # noqa: E402
-from publish_validator.hosts.blender import BlenderHost  # noqa: E402
-from publish_validator.hosts.blender import register as register_ui  # noqa: E402
-from publish_validator.hosts.blender import unregister as unregister_ui  # noqa: E402
-
-
-def empty_scene():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+from publish_validator.hosts import current_host  # noqa: E402
+from publish_validator.hosts.blender import BlenderHost, register, unregister  # noqa: E402
+from publish_validator.hosts.blender.ui import state  # noqa: E402
 
 
 def make_asset(name="chair", task="model", asset_type="prop"):
@@ -37,11 +32,11 @@ def make_asset(name="chair", task="model", asset_type="prop"):
 
 def add_cube(name, parent, scale=(1, 1, 1), location=(0, 0, 0)):
     bpy.ops.mesh.primitive_cube_add(location=location)
-    obj = bpy.context.active_object
-    obj.name = name
-    obj.parent = parent
-    obj.scale = scale
-    return obj
+    cube = bpy.context.active_object
+    cube.name = name
+    cube.parent = parent
+    cube.scale = scale
+    return cube
 
 
 def select_only(*objects):
@@ -49,14 +44,10 @@ def select_only(*objects):
         obj.select_set(False)
     for obj in objects:
         obj.select_set(True)
-    bpy.context.view_layer.objects.active = objects[0] if objects else None
 
 
-# -- Tests ------------------------------------------------------------------------
-
-
-def test_detects_blender_host():
-    assert get_host().name == "blender"
+def test_finds_the_blender_host():
+    assert current_host().name == "blender"
 
 
 def test_validate_and_fix_scale():
@@ -64,83 +55,85 @@ def test_validate_and_fix_scale():
     seat = add_cube("seat", root, scale=(2, 1, 1), location=(0, 0, 3))
     leg = add_cube("leg", seat, location=(5, 0, 0))
     bpy.context.view_layer.update()
-    leg_world = leg.matrix_world.copy()
-    seat_world_verts = [seat.matrix_world @ v.co for v in seat.data.vertices]
-    select_only(leg)  # resolver walks up to the root
+    leg_position = leg.matrix_world.translation.copy()
+    seat_points = [seat.matrix_world @ vertex.co for vertex in seat.data.vertices]
+    select_only(leg)  # selecting a child should still find the asset root
 
     validator = Validator(BlenderHost())
     report = validator.run()
-    print(format_text(report))
+    print(report.as_text())
     assert report.subject_name == "chair"
-    unit_scale = report.get("transforms.unit_scale")
-    assert unit_scale.status is Status.FAILED, unit_scale
-    assert unit_scale.issues[0].target_names == ("seat",)
-    assert report.get("hierarchy.root_not_empty").status is Status.PASSED
-    assert report.get("objects.allowed_object_types").status is Status.PASSED
+    assert report.get("RootNotEmpty").status == PASSED
+    assert report.get("AllowedObjectTypes").status == PASSED
+    unit_scale = report.get("UnitScale")
+    assert unit_scale.status == FAILED
+    assert unit_scale.issues[0].target_names == ["seat"]
 
-    validator.select(unit_scale)
+    validator.select(unit_scale.targets)
     assert BlenderHost().selection() == [seat]
 
     report = validator.run(fix=True)
-    print(format_text(report))
-    assert report.get("transforms.unit_scale").status is Status.FIXED
-    assert tuple(seat.scale) == (1, 1, 1)
-    bpy.context.view_layer.update()
-    for before, vert in zip(seat_world_verts, seat.data.vertices, strict=True):
-        assert (before - seat.matrix_world @ vert.co).length < 1e-5
-    assert (leg.matrix_world.translation - leg_world.translation).length < 1e-5
+    print(report.as_text())
+    assert report.get("UnitScale").status == FIXED
     assert report.passed
+    assert tuple(seat.scale) == (1, 1, 1)
+
+    # Nothing should have moved in the world.
+    bpy.context.view_layer.update()
+    for before, vertex in zip(seat_points, seat.data.vertices, strict=True):
+        assert (before - seat.matrix_world @ vertex.co).length < 0.00001
+    assert (leg.matrix_world.translation - leg_position).length < 0.00001
+    assert tuple(leg.scale) == (1, 1, 1)
 
 
-def test_task_filtering_and_disallowed_types():
+def test_checks_are_picked_by_task():
     root = make_asset(task="lookdev")
     add_cube("body", root, scale=(3, 3, 3))
-    light = bpy.data.objects.new("lamp", bpy.data.lights.new("lamp", "POINT"))
-    bpy.context.scene.collection.objects.link(light)
-    light.parent = root
+    lamp = bpy.data.objects.new("lamp", bpy.data.lights.new("lamp", "POINT"))
+    bpy.context.scene.collection.objects.link(lamp)
+    lamp.parent = root
     select_only(root)
 
     report = Validator(BlenderHost()).run()
-    assert report.get("transforms.unit_scale") is None  # model-only check
-    assert report.get("objects.allowed_object_types") is None
+    assert report.get("UnitScale") is None  # model-only checks
+    assert report.get("AllowedObjectTypes") is None
 
     root["pv_task"] = "model"
     report = Validator(BlenderHost()).run()
-    allowed = report.get("objects.allowed_object_types")
-    assert allowed.status is Status.FAILED
+    allowed = report.get("AllowedObjectTypes")
+    assert allowed.status == FAILED
     assert allowed.issues[0].message == "lamp is a light object"
 
 
-def test_component_selection():
+def test_selecting_faces():
     root = make_asset()
     cube = add_cube("cube", root)
-    BlenderHost().select([Component(cube, "face", (0, 2))])
+    BlenderHost().select([Component(cube, "face", [0, 2])])
     assert bpy.context.mode == "EDIT_MESH"
     bpy.ops.object.mode_set(mode="OBJECT")
-    assert [p.index for p in cube.data.polygons if p.select] == [0, 2]
+    assert [face.index for face in cube.data.polygons if face.select] == [0, 2]
 
 
-def test_ui_operators():
-    register_ui()
+def test_panel_buttons():
+    register()
     try:
         root = make_asset()
         add_cube("seat", root, scale=(2, 2, 2))
         select_only(root)
         assert bpy.ops.publish_validator.validate() == {"FINISHED"}
-        from publish_validator.hosts.blender.ui import _State
-
-        assert _State.report.get("transforms.unit_scale").status is Status.FAILED
-        assert bpy.ops.publish_validator.select(check_id="transforms.unit_scale") == {"FINISHED"}
+        assert state.report.get("UnitScale").status == FAILED
+        assert bpy.ops.publish_validator.select(check_id="UnitScale") == {"FINISHED"}
         assert bpy.ops.publish_validator.validate(fix=True) == {"FINISHED"}
-        assert _State.report.passed
+        assert state.report.passed
+
         select_only()
         assert bpy.ops.publish_validator.validate() == {"CANCELLED"}
-        assert "Select an asset root" in _State.message
+        assert "Select an asset root" in state.message
     finally:
-        unregister_ui()
+        unregister()
 
 
-def test_cli_headless(tmp=None):
+def test_command_line():
     root = make_asset("table")
     add_cube("top", root, scale=(1, 1, 0.1))
     select_only()
@@ -149,35 +142,33 @@ def test_cli_headless(tmp=None):
     assert cli_main(["--root", "missing"]) == 2
 
 
-def test_external_check_folder():
-    examples = ROOT / "examples" / "studio_checks"
+def test_studio_check_folder():
     root = make_asset()
     add_cube("Seat_px", root)
     select_only(root)
-    validator = Validator(BlenderHost(), paths=[examples])
+    validator = Validator(BlenderHost(), check_paths=[REPO / "examples" / "studio_checks"])
     report = validator.run()
-    print(format_text(report))
-    assert not report.load_errors, report.load_errors
-    assert report.get("studio.geo_naming") is not None
-
-
-# -- Runner -----------------------------------------------------------------------
+    print(report.as_text())
+    assert validator.load_errors == []
+    assert report.get("GeoNaming").status == PASSED
+    assert report.get("UnappliedModifiers").status == PASSED
 
 
 def main():
-    tests = [(n, f) for n, f in globals().items() if n.startswith("test_") and callable(f)]
-    failures = 0
-    for name, func in tests:
-        empty_scene()
+    tests = [(name, func) for name, func in globals().items() if name.startswith("test_")]
+    failed = 0
+    for name, test in tests:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
         try:
-            func()
+            test()
             print(f"PASS {name}")
         except Exception:
-            failures += 1
+            failed += 1
             print(f"FAIL {name}")
             traceback.print_exc()
-    print(f"\n{len(tests) - failures}/{len(tests)} Blender tests passed")
-    if failures:
+
+    print(f"\n{len(tests) - failed}/{len(tests)} Blender tests passed")
+    if failed:
         sys.exit(1)
 
 

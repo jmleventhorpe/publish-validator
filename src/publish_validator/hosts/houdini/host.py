@@ -1,64 +1,43 @@
-"""Houdini host adapter. STUB: written against the hou API but not yet tested in Houdini.
+"""Houdini host. NOT TESTED IN HOUDINI YET.
 
-Nodes are ``hou.Node`` objects. Custom properties are spare parms.
+Nodes are hou.Node objects. Custom properties are spare parms.
 """
-
-from __future__ import annotations
-
-from collections.abc import Callable, Iterable
-from typing import Any
 
 import hou
 
 from ...core.host import Host
-from ...core.model import Component
+from ...core.results import Component
 
 
 class HoudiniHost(Host):
     name = "houdini"
 
-    def selection(self) -> list[hou.Node]:
+    def selection(self):
         return list(hou.selectedNodes())
 
-    def select(self, targets: Iterable[Any]) -> None:
+    def select(self, targets):
         hou.clearAllSelected()
         for target in targets:
             node = target.node if isinstance(target, Component) else target
-            if isinstance(node, hou.Node):
-                node.setSelected(True)
+            node.setSelected(True)
 
-    def find(self, name: str) -> hou.Node | None:
-        return hou.node(name)  # Houdini node paths, e.g. "/stage/chair"
+    def find(self, name):
+        return hou.node(name)  # a node path, e.g. "/stage/chair"
 
-    def parent(self, node: hou.Node) -> hou.Node | None:
+    def parent(self, node):
         return node.parent()
 
-    def children(self, node: hou.Node) -> list[hou.Node]:
+    def children(self, node):
         return list(node.children())
 
-    def get_property(self, node: hou.Node, key: str, default: Any = None) -> Any:
+    def get_property(self, node, key, default=None):
         parm = node.parm(key)
         return parm.eval() if parm is not None else default
 
-    def find_by_property(self, key: str) -> list[hou.Node]:
-        return [n for n in hou.node("/").allSubChildren() if n.parm(key) is not None]
+    def find_by_property(self, key):
+        return [node for node in hou.node("/").allSubChildren() if node.parm(key) is not None]
 
-    def node_name(self, node: Any) -> str:
+    def node_name(self, node):
         if isinstance(node, Component):
             node = node.node
-        return node.name() if isinstance(node, hou.Node) else str(node)
-
-    def display_name(self, target: Any) -> str:
-        if isinstance(target, hou.Node):
-            return target.path()
-        return super().display_name(target)
-
-    def watch_selection(self, callback: Callable[[], None]) -> Callable[[], None]:
-        if not hou.isUIAvailable():
-            return lambda: None
-
-        def on_select(_selection):
-            callback()
-
-        hou.ui.addSelectionCallback(on_select)
-        return lambda: hou.ui.removeSelectionCallback(on_select)
+        return node.name()

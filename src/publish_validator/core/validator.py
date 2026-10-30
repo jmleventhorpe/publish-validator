@@ -1,134 +1,147 @@
-"""High-level entry point tying host, resolver, registry and config together.
+"""The Validator: the one object that UIs, the command line and publish hooks use.
 
-This is what UIs, the CLI and publish hooks use::
-
-    validator = Validator(BlenderHost())
-    report = validator.run()            # validates the selected asset
-    if not report.passed: ...
+validator = Validator(BlenderHost())
+report = validator.run()     # validates the selected asset
+if not report.passed:
+    ...
 """
 
-from __future__ import annotations
-
 import importlib
-import os
-from collections.abc import Iterable
-from typing import Any
+import traceback
 
-from .check import Check
-from .config import Config, ConfigError, load_config
-from .host import Host
-from .model import CheckResult, Issue, LoadError, Report
-from .registry import Registry
-from .runner import Observer, run
-from .subject import PropertyResolver, Subject, SubjectResolver
+from .check import Context
+from .config import load_config
+from .loader import load_checks
+from .results import (
+    ERROR,
+    ERRORED,
+    FAILED,
+    FIXED,
+    PASSED,
+    SKIPPED,
+    WARNING,
+    CheckResult,
+    Issue,
+    Report,
+)
+from .subject import PropertyResolver
 
 
 class Validator:
-    """Validation for one host, with config, checks and resolver loaded once.
-
-    Args:
-        host: The application adapter.
-        config: Overrides; defaults to :func:`load_config` (``$PUBLISH_VALIDATOR_CONFIG``).
-        registry: Checks to use; defaults to discovering them.
-        resolver: Subject resolver; defaults to config ``resolver`` or
-            :class:`PropertyResolver`.
-        paths: Extra check folders on top of config and environment.
-    """
-
-    def __init__(
-        self,
-        host: Host,
-        *,
-        config: Config | None = None,
-        registry: Registry | None = None,
-        resolver: SubjectResolver | None = None,
-        paths: Iterable[str | os.PathLike] = (),
-    ) -> None:
+    def __init__(self, host, config=None, resolver=None, check_paths=()):
         self.host = host
-        self._config_errors: list[LoadError] = []
-        if config is None:
-            try:
-                config = load_config()
-            except ConfigError as exc:
-                self._config_errors.append(LoadError("config", str(exc)))
-                config = Config()
-        self.config = config
-        self._paths = [*config.check_paths, *paths]
-        self.registry = registry if registry is not None else self._discover()
-        self.resolver = resolver or self._make_resolver()
+        self.config = config or load_config()
+        self.resolver = resolver or make_resolver(self.config.resolver)
+        self.extra_check_paths = list(check_paths)
+        self.reload()
 
-    # -- Queries ------------------------------------------------------------------
+    def reload(self):
+        """Load every check file again, so edited checks work without a restart."""
+        folders = self.config.check_paths + self.extra_check_paths
+        self.checks, self.load_errors = load_checks(folders, self.host.name)
 
-    @property
-    def load_errors(self) -> list[LoadError]:
-        unknown = [
-            LoadError("config", f"config refers to unknown check id {check_id!r}")
-            for check_id in self.config.unknown_ids(self.registry.ids)
-        ]
-        return [*self._config_errors, *self.registry.errors, *unknown]
-
-    def resolve(self, node: Any | None = None) -> Subject:
-        """The subject for ``node``, or for the current selection. Raises ResolveError."""
+    def resolve(self, node=None):
+        """The asset for a node, or for the selection. Raises ResolveError."""
         return self.resolver.resolve(self.host, node)
 
-    def checks_for(self, subject: Subject) -> list[type[Check]]:
-        return self.registry.applicable(self.host.name, subject)
+    def checks_for(self, subject):
+        return [check for check in self.checks if check.applies_to(self.host.name, subject)]
 
-    # -- Actions ------------------------------------------------------------------
+    def run(self, subject=None, fix=False, only=None):
+        """Run every check that applies to the subject (by default, the selected asset).
 
-    def run(
-        self,
-        subject: Subject | None = None,
-        *,
-        fix: bool = False,
-        only: Iterable[str] | None = None,
-        observer: Observer | None = None,
-    ) -> Report:
-        """Validate ``subject`` (default: resolved from the selection)."""
-        subject = subject or self.resolve()
-        return run(
-            subject,
-            self.host,
-            self.checks_for(subject),
-            config=self.config,
-            fix=fix,
-            only=only,
-            observer=observer,
-            load_errors=self.load_errors,
-        )
+        fix: also apply automatic fixes.
+        only: a list of check names; any others are skipped.
+        """
+        if subject is None:
+            subject = self.resolve()
+        ctx = Context(subject, self.host)
 
-    def run_all(self, *, fix: bool = False, only: Iterable[str] | None = None) -> list[Report]:
-        """Validate every subject in the scene (headless / batch use)."""
-        return [self.run(s, fix=fix, only=only) for s in self.resolver.find_all(self.host)]
+        results = []
+        for check_class in self.checks_for(subject):
+            # Checks are identified by their class name, in config and in reports.
+            name = check_class.__name__
+            options = self.config.for_check(name)
+            enabled = options.get("enabled", check_class.enabled)
+            if not enabled or (only and name not in only):
+                results.append(make_result(check_class, SKIPPED))
+            else:
+                results.append(run_check(check_class, ctx, options, fix))
 
-    def select(self, item: CheckResult | Issue) -> None:
-        """Select the targets of a result or a single issue in the host."""
-        self.host.select(item.targets)
+        return Report(subject.name, self.host.name, results, self.load_errors, fix)
 
-    def reload(self) -> None:
-        """Re-import all checks (for iterating on checks without restarting)."""
-        self.registry = self._discover(reload=True)
+    def run_all(self, fix=False, only=None):
+        """Validate every asset in the scene, for batch and farm use."""
+        subjects = self.resolver.find_all(self.host)
+        return [self.run(subject, fix, only) for subject in subjects]
 
-    # -- Internals ----------------------------------------------------------------
+    def select(self, targets):
+        self.host.select(targets)
 
-    def _discover(self, reload: bool = False) -> Registry:
-        return Registry.discover(self._paths, host=self.host.name, reload=reload)
 
-    def _make_resolver(self) -> SubjectResolver:
-        if self.config.resolver:
-            try:
-                return import_string(self.config.resolver)()
-            except Exception as exc:
-                self._config_errors.append(
-                    LoadError("config", f"cannot load resolver {self.config.resolver!r}: {exc}")
-                )
+def run_check(check_class, ctx, options=None, fix=False):
+    """Run one check and return its CheckResult."""
+    options = options or {}
+    forced_severity = options.get("severity")
+    try:
+        check = check_class(options.get("settings"))
+        issues = find_issues(check, ctx, forced_severity)
+        fixed = []
+        if fix and issues and check.can_fix():
+            check.fix(ctx, issues)
+            ctx.cache.clear()  # the scene has changed, so cached values are out of date
+            # Check again, so the report shows what is really left.
+            remaining = find_issues(check, ctx, forced_severity)
+            fixed = [issue for issue in issues if issue not in remaining]
+            issues = remaining
+    except Exception:
+        # A broken check must never stop the other checks from running.
+        return make_result(check_class, ERRORED, error=traceback.format_exc())
+
+    return make_result(check_class, get_status(issues, fixed), issues, fixed)
+
+
+def find_issues(check, ctx, forced_severity=None):
+    """Call check.validate() and fill in each issue's severity and target names."""
+    issues = []
+    for issue in check.validate(ctx) or []:
+        if isinstance(issue, str):
+            issue = Issue(issue)
+        # A severity set in config beats the issue's own, which beats the check's default.
+        issue.severity = forced_severity or issue.severity or check.severity
+        issue.target_names = [ctx.host.display_name(target) for target in issue.targets]
+        issues.append(issue)
+    return issues
+
+
+def get_status(issues, fixed):
+    severities = {issue.severity for issue in issues}
+    if ERROR in severities:
+        return FAILED
+    if WARNING in severities:
+        return WARNING
+    if fixed:
+        return FIXED
+    return PASSED
+
+
+def make_result(check_class, status, issues=(), fixed=(), error=""):
+    return CheckResult(
+        check_id=check_class.__name__,
+        label=check_class.label,
+        category=check_class.category,
+        description=check_class.description(),
+        status=status,
+        issues=list(issues),
+        fixed_issues=list(fixed),
+        error=error,
+    )
+
+
+def make_resolver(path):
+    """Create the resolver named in config ("module:Class"), or the default one."""
+    if not path:
         return PropertyResolver()
-
-
-def import_string(path: str) -> Any:
-    """Import ``"package.module:attribute"``."""
-    module_name, _, attribute = path.partition(":")
-    obj: Any = importlib.import_module(module_name)
-    for part in attribute.split("."):
-        obj = getattr(obj, part)
-    return obj
+    module_name, class_name = path.split(":")
+    module = importlib.import_module(module_name)
+    return getattr(module, class_name)()

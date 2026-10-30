@@ -1,20 +1,26 @@
-# Example studio config. Use it with:
+# An example studio config. To use it:
 #   export PUBLISH_VALIDATOR_CONFIG=/path/to/examples/studio_checks/studio.toml
-# Layer more files after it (separated by ":" on Linux/macOS, ";" on Windows)
-# for project or user overrides; later files win.
+#
+# You can list several files, separated by ":" (";" on Windows). Later files
+# win, so put the studio file first and project or user files after it.
 
-# Load the example checks next to this file.
+# Load the example checks in this folder.
 check_paths = ["."]
 
-# Built-in check made less strict for this studio.
-[checks."transforms.unit_scale"]
+# A custom resolver, if your pipeline stores asset info somewhere else.
+# resolver = "my_pipeline.validator:PipelineResolver"
+
+# Checks are referred to by their class name.
+[checks.UnitScale]
 severity = "warning"
 settings = { tolerance = 0.0001 }
 
-# Allow lights in assets (e.g. practical lamps).
-[checks."objects.allowed_object_types".settings]
-allowed = ["MESH", "EMPTY", "LIGHT"]
+[checks.AllowedObjectTypes]
+settings = { allowed = ["MESH", "EMPTY", "LIGHT"] }
 
-# Studio check tweaks.
-[checks."studio.unapplied_modifiers".settings]
-allowed = ["SUBSURF", "BEVEL"]
+[checks.UnappliedModifiers]
+settings = { allowed = ["SUBSURF", "BEVEL"] }
+
+# Switch a check off completely:
+# [checks.RootNotEmpty]
+# enabled = false

@@ -1,26 +1,15 @@
-"""Blender integration: the host adapter plus a minimal sidebar UI.
-
-From a script or the Python console::
-
-    from publish_validator.hosts.blender import BlenderHost
-    from publish_validator import Validator, format_text
-
-    print(format_text(Validator(BlenderHost()).run()))
-"""
+"""Blender support: the host adapter and the sidebar panel (View3D > N > Validate)."""
 
 from .host import BlenderHost
 
 
-def register() -> None:
+def register():
     from . import ui
 
     ui.register()
 
 
-def unregister() -> None:
+def unregister():
     from . import ui
 
     ui.unregister()
-
-
-__all__ = ["BlenderHost", "register", "unregister"]

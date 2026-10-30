@@ -36,3 +36,7 @@ exclude = ["*.md"]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 # Checks are declared with set/list class attributes on purpose (hosts = {"blender"}).
 ignore = ["RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__ files re-export names on purpose.
+"__init__.py" = ["F401"]

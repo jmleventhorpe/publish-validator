@@ -1,27 +1,24 @@
-"""Example Blender-only check, written as a plain function.
+"""An example Blender-only check. It is in a folder called "blender", so it
+only loads inside Blender."""
 
-It lives in a folder named "blender", so it is only loaded inside Blender.
-"""
-
-from publish_validator import Severity, check
+from publish_validator import WARNING, Check
 
 
-@check(
-    id="studio.unapplied_modifiers",
-    category="Objects",
-    hosts="blender",
-    tasks="model",
-    severity=Severity.WARNING,
-    settings={"allowed": ["SUBSURF"]},
-)
-def unapplied_modifiers(ctx):
-    """Meshes should not carry unapplied modifiers (subdivision is allowed).
+class UnappliedModifiers(Check):
+    """Meshes shouldn't have unapplied modifiers (subdivision is allowed).
 
-    Downstream packages do not understand Blender modifiers. Apply them, or ask
-    a lead to allow the modifier type in the studio config.
+    Other packages don't understand Blender modifiers. Apply them, or ask a lead
+    to allow that modifier type in the studio config.
     """
-    allowed = set(ctx.settings.allowed)
-    for obj in ctx.host.meshes(ctx.root):
-        extra = [m.name for m in obj.modifiers if m.type not in allowed]
-        if extra:
-            yield f"{obj.name} has modifiers: {', '.join(extra)}"
+
+    category = "Objects"
+    hosts = ["blender"]
+    tasks = ["model"]
+    severity = WARNING
+    settings = {"allowed": ["SUBSURF"]}
+
+    def validate(self, ctx):
+        for obj in ctx.host.meshes(ctx.root):
+            modifiers = [m.name for m in obj.modifiers if m.type not in self.settings["allowed"]]
+            if modifiers:
+                yield self.issue(f"{obj.name} has modifiers: {', '.join(modifiers)}", obj)

@@ -1,10 +1,10 @@
 # Writing checks
 
-A check is a small Python class. You write one file, put it in a folder the
-validator knows about, and it shows up in the UI, the CLI and publish hooks.
-There is nothing to register.
+A check is a small Python class in a `.py` file. Put the file in a check folder
+and it shows up in the panel and on the command line. There is nothing to
+register.
 
-## 1. The smallest check
+## A first check
 
 ```python
 # my_checks/hierarchy.py
@@ -12,114 +12,99 @@ from publish_validator import Check
 
 
 class HasGeoGroup(Check):
-    """The asset root must contain a 'geo' group.
+    """The asset needs a 'geo' group.
 
-    Everything downstream looks for geometry under 'geo'.
-    Create an empty called 'geo' under the root and parent the meshes to it.
+    Everything downstream looks for geometry under 'geo'. Create an empty called
+    'geo' under the asset root and parent the meshes to it.
     """
 
+    category = "Hierarchy"
+
     def validate(self, ctx):
-        names = [ctx.host.node_name(n) for n in ctx.host.children(ctx.root)]
+        names = [ctx.host.node_name(node) for node in ctx.host.children(ctx.root)]
         if "geo" not in names:
-            yield self.issue("No 'geo' group under the asset root", ctx.root)
+            yield self.issue("There is no 'geo' group", ctx.root)
 ```
 
-- **`validate(ctx)`** yields one issue per problem. If it yields nothing, the check passes.
-- **`self.issue(message, *targets)`**: the targets are the scene objects involved. They're what the **Select** button selects.
-- **The docstring is the documentation.** The first line is a summary; the rest should say why it matters and how to fix it by hand. The UI shows it as a tooltip.
-- **You can also yield a plain string**, which is the same as an issue with no targets.
+- **`validate`** yields one issue per problem it finds. If it yields nothing, the check passed.
+- **`self.issue(message, *targets)`** creates an issue. The targets are the scene objects involved; the **Select** button selects them.
+- **A plain string** can be yielded instead, for an issue with nothing to select.
+- **The docstring** is shown as the check's tooltip. The first line says what the rule is; the rest says why it matters and how to fix it by hand.
+- **The class name** (`HasGeoGroup`) identifies the check in config files and reports, so keep it unique.
 
-## 2. Make it load
+## Where check files go
 
-Put the file in a folder and point the validator at it, in either of two ways:
+Any of these folders is loaded:
 
-```bash
-export PUBLISH_VALIDATOR_PATH=/studio/pipeline/my_checks      # ":"-separated (";" on Windows)
-```
+- `src/publish_validator/checks/` (the built-in checks)
+- folders listed in `check_paths` in a config file
+- folders listed in the `PUBLISH_VALIDATOR_PATH` environment variable (separated by `:`, or `;` on Windows)
 
-or in a config file (see section 6):
+Every `.py` file in those folders is loaded, including files in subfolders, with these rules:
 
-```toml
-check_paths = ["my_checks"]       # relative to the config file
-```
+- **Files and folders starting with `_` are not loaded.** Use that for shared helper code (`_utils.py`).
+- **A folder called `blender`, `maya` or `houdini` only loads in that application.**
+- **A file that can't import `bpy`, `maya` or `hou` is skipped quietly** when you're in a different application.
+- **Any other error in a file is shown as "could not load".** The other files still load.
+- **The ↻ button in the Blender panel loads every file again,** so you can edit a check without restarting Blender.
 
-Every `.py` file in the folder, including subfolders, is loaded. Some rules:
-
-| Rule | Why |
-|---|---|
-| Files and folders starting with `_` or `.` are skipped | Put shared helpers in `_utils.py` |
-| A folder named after a host (`blender/`, `maya/`, `houdini/`) only loads in that host | Keeps host-specific code out of other apps |
-| A file that fails because `bpy`/`maya`/`hou` isn't importable is skipped silently | Host-only files are harmless elsewhere |
-| A file that fails for any other reason is listed as a **load error** | One broken file never stops the others |
-| Files are re-executed on every discovery (the ↻ button in Blender) | Edit and reload without restarting |
-
-A pip-installable package can expose checks through the entry-point group
-`publish_validator.checks`, pointing at a module, a Check class, or a function
-that returns Check classes:
-
-```toml
-# your package's pyproject.toml
-[project.entry-points."publish_validator.checks"]
-my_studio = "my_studio.checks"
-```
-
-## 3. Say where it applies
-
-Every attribute is optional:
+## Where a check runs
 
 ```python
 class UnitScale(Check):
-    """Mesh objects must have a scale of (1, 1, 1)."""
-
-    id = "studio.unit_scale"      # stable id for config; default "<file>.<snake_case_class>"
-    label = "Unit Scale"          # UI name; default is the class name spaced out
-    category = "Transforms"       # UI group
-    hosts = {"blender"}           # None (default) = every host
-    tasks = {"model"}             # None = every task
-    asset_types = {"prop", "character"}
-    severity = Severity.ERROR     # ERROR blocks publishing; WARNING and INFO don't
-    enabled = True                # False = studios must opt in through config
-    order = 0                     # lower runs first
+    label = "Unit Scale"          # name in the UI (default: the class name with spaces)
+    category = "Transforms"       # group in the UI
+    hosts = ["blender"]           # only in Blender (default: every application)
+    tasks = ["model"]             # only for modeling (default: every task)
+    asset_types = ["prop"]        # only for props (default: every type)
+    severity = WARNING            # INFO, WARNING or ERROR (default). Only ERROR blocks a publish.
+    enabled = False               # off unless a studio switches it on in config
 ```
 
-Set `id` explicitly for anything other studios or configs will reference. The
-default id changes if you rename the file or the class.
+Every one of these is optional.
 
-A check limited to one host (for example `hosts = {"blender"}`) can use that
-host's helpers, such as `ctx.host.meshes(root)` and `ctx.host.apply_scale(objs)`
-in Blender, and can use `bpy` directly. A check with no `hosts` should stick to
-the generic host API:
+**Host methods.** A check with no `hosts` should only use the host methods that
+every application has:
 
 | Method | Returns |
 |---|---|
-| `ctx.host.children(node)` | Direct children of a node |
-| `ctx.host.descendants(node)` | Everything below a node |
-| `ctx.host.parent(node)` | A node's parent |
-| `ctx.host.node_name(node)` | A node's short name |
-| `ctx.host.get_property(node, key, default)` | A custom property's value |
-| `ctx.host.find(name)` | A node by name |
-| `ctx.host.selection()` / `ctx.host.select(targets)` | The current selection / select targets |
+| `ctx.host.children(node)` | The node's direct children |
+| `ctx.host.descendants(node)` | Everything below the node |
+| `ctx.host.parent(node)` | The node's parent |
+| `ctx.host.node_name(node)` | The node's short name |
+| `ctx.host.get_property(node, key)` | A custom property on the node |
+| `ctx.host.find(name)` | The node with that name |
 
-## 4. Settings: let studios tune it without editing code
+A check limited to Blender can use Blender's helpers (`ctx.host.meshes(root)`,
+`ctx.host.apply_scale(objects)`) and `bpy` itself.
+
+**The context.** `ctx` holds everything about the current run:
+
+| Attribute | Contents |
+|---|---|
+| `ctx.root` | The asset's top node |
+| `ctx.subject` | The asset's name, type and task |
+| `ctx.host` | The application |
+
+## Settings
+
+Put values a studio might want to change in `settings`:
 
 ```python
 class UnitScale(Check):
-    class Settings:
-        tolerance = 1e-6
-        ignore = ["proxy"]        # lists are fine; they become tuples
+    settings = {"tolerance": 0.000001}
 
     def validate(self, ctx):
-        tolerance = self.settings.tolerance
+        tolerance = self.settings["tolerance"]
         ...
 ```
 
-Studios override settings per project in config. Unknown setting names are
-reported as errors, so typos don't fail silently.
+A studio can change them in config without editing the check. A misspelled
+setting name in config is reported as an error, not ignored.
 
-## 5. Automatic fixes
+## Fixes
 
-Add a `fix` method and the check becomes fixable (the **Fix** button and
-`--fix`):
+Add a `fix` method and the **Fix** button (or `--fix`) will use it:
 
 ```python
     def validate(self, ctx):
@@ -132,100 +117,88 @@ Add a `fix` method and the check becomes fixable (the **Fix** button and
             ctx.host.apply_scale(issue.targets)
 ```
 
-You don't need to report what got fixed. The runner calls `validate` again
-after `fix`, and reports the check as **FIXED** if nothing is left, or as
-FAILED with whatever remains.
+After `fix` runs, the check runs again. It's reported as **fixed** if nothing
+is left, and as failed (listing what's left) otherwise.
 
-To pass extra data from `validate` to `fix`, use keyword arguments:
-`self.issue("msg", obj, expected="map1")` puts `expected` into `issue.data["expected"]`.
+To pass extra information from `validate` to `fix`, add keyword arguments:
+`self.issue("Wrong UV set", mesh, expected="map1")` puts it in
+`issue.data["expected"]`.
 
-## 6. Configure without code
+## Config
 
 ```toml
 # studio.toml
-check_paths = ["checks"]
+check_paths = ["checks"]          # relative to this file
 
-[checks."transforms.unit_scale"]
-severity = "warning"                      # downgrade for this studio
+[checks.UnitScale]
+severity = "warning"
 settings = { tolerance = 0.0001 }
 
-[checks."studio.geo_naming".settings]
-pattern = "^[A-Z][A-Za-z0-9]*$"
-
-[checks."legacy.*"]                       # glob patterns work; exact ids win
+[checks.RootNotEmpty]
 enabled = false
 ```
 
-Layer files with `PUBLISH_VALIDATOR_CONFIG` (studio first, then more specific
-files). Later files win:
+Point `PUBLISH_VALIDATOR_CONFIG` at one or more of these files. Later files
+win, so list the studio file first and project files after it:
 
 ```bash
-export PUBLISH_VALIDATOR_CONFIG=/studio/pv.toml:/projects/foo/pv.toml
+export PUBLISH_VALIDATOR_CONFIG=/studio/validator.toml:/projects/foo/validator.toml
 ```
 
-## 7. Function shortcut
+## Sharing work between checks
 
-For very simple checks, a decorated function works too. It becomes the same
-kind of Check class:
-
-```python
-from publish_validator import check
-
-@check(category="Hierarchy", settings={"max_depth": 6})
-def not_too_deep(ctx):
-    """Hierarchies deeper than max_depth are hard to work with."""
-    ...
-    yield "Hierarchy is 9 levels deep"
-
-@not_too_deep.fixer          # optional
-def _(ctx, issues):
-    ...
-```
-
-Settings come through `ctx.settings`.
-
-## 8. Share work between checks
-
-`ctx.cached(key, factory)` computes a value once per run and shares it with
-every check:
+If several checks need the same expensive data, compute it once per run:
 
 ```python
 meshes = ctx.cached("meshes", lambda: ctx.host.meshes(ctx.root))
 ```
 
-## 9. Precise targets: components
-
-To point at specific faces, edges or vertices instead of the whole object,
-use `Component`:
+## Pointing at faces, edges or vertices
 
 ```python
 from publish_validator import Component
 
-yield self.issue(f"{obj.name} has {len(faces)} ngons", Component(obj, "face", tuple(faces)))
+yield self.issue(f"{obj.name} has ngons", Component(obj, "face", ngon_indices))
 ```
 
-In Blender, **Select** enters Edit Mode with exactly those elements selected.
+In Blender, **Select** then goes into Edit Mode with exactly those faces
+selected.
 
-## 10. Test it
+## Base classes
 
-Generic checks can be tested with plain pytest, without opening a DCC:
+To share code between checks, make a base class and mark it `abstract` so it
+isn't run on its own:
 
 ```python
-from publish_validator import Status
+class MeshCheck(Check):
+    abstract = True
+    hosts = ["blender"]
+
+    def meshes(self, ctx):
+        return ctx.host.meshes(ctx.root)
+```
+
+## Testing a check
+
+Checks that only use the generic host methods can be tested with pytest,
+without opening an application:
+
+```python
+from publish_validator import FAILED
 from publish_validator.testing import FakeNode, run_check
 from my_checks.hierarchy import HasGeoGroup
 
-def test_missing_geo():
-    root = FakeNode("chair", FakeNode("render"), props={"pv_task": "model"})
-    assert run_check(HasGeoGroup, root).status is Status.FAILED
+
+def test_missing_geo_group():
+    root = FakeNode("chair", FakeNode("render"))
+    assert run_check(HasGeoGroup, root).status == FAILED
 ```
 
-`FakeNode` accepts any attributes (`FakeNode("cube", scale=(2, 1, 1))`).
-Host-specific checks are best tested inside the host. See
-`tests/blender/run.py` for the pattern.
+`FakeNode` accepts any attribute (`FakeNode("cube", scale=(2, 1, 1))`).
+Blender-only checks are best tested in Blender; see `tests/blender/run.py`.
 
-To check what is loaded and where each check applies:
+To see what loads and where each check runs:
 
 ```bash
-publish-validator --list --path my_checks
+python -m publish_validator --list --path my_checks
 ```

@@ -1,116 +1,101 @@
 # Publish Validator
 
-Extensible sanity checks to run before publishing assets: modeling, lookdev,
-rigging and so on. It works in Blender (primary), Maya and Houdini, and can be
-adapted to any application that runs Python 3.11 or newer.
+Sanity checks to run before publishing an asset (modeling, lookdev, rigging and
+so on). Blender is the main target, followed by Maya and Houdini. It runs in any
+application with Python 3.11 or newer.
 
 - **Adding a check means writing one small class.** See [docs/writing-checks.md](docs/writing-checks.md).
-- **Studios configure it without touching code.** Layered TOML config lets them enable or disable checks, change severities and tune settings.
-- **It runs with or without a UI.** There's a native Blender sidebar panel, plus a CLI and a JSON report for publish hooks and farm jobs.
-- **The core has no dependencies.** It's pure standard library and never imports a DCC, so it's testable anywhere.
+- **Studios change behaviour in a TOML config file,** not in the code.
+- **It runs with or without a UI:** a Blender sidebar panel, plus a command line for publish hooks and the farm.
 
-## Quick start (Blender)
+## Using it in Blender
 
-1. Mark an asset root, usually an Empty with the asset parented under it, with custom properties:
+1. **Mark the asset's root** (usually an Empty with the asset parented under it) with custom properties:
 
-   | Property | Example | |
+   | Property | Example | Notes |
    |---|---|---|
-   | `pv_task` | `model` | required: marks the root |
+   | `pv_task` | `model` | Required. This is what marks the root |
    | `pv_asset_type` | `prop` | |
-   | `pv_asset_name` | `chair` | defaults to the object's name |
+   | `pv_asset_name` | `chair` | Optional. Defaults to the object's name |
 
-2. Install the extension: `python scripts/build_blender_extension.py`, then
-   Preferences > Get Extensions > Install from Disk > `dist/publish_validator-*.zip`.
-3. Select anything in the asset, open **View3D > Sidebar (N) > Validate**, and
-   press **Validate** or **Fix**.
+2. **Install the extension:** run `python scripts/build_blender_extension.py`, then go to Preferences > Get Extensions > Install from Disk and pick `dist/publish_validator-*.zip`.
+3. **Run it:** select anything in the asset, open View3D > Sidebar (N) > **Validate**, and press **Validate** or **Fix**.
 
-For development, skip the build and start Blender with the source on the path:
-
-```bash
-PYTHONPATH=$PWD/src blender
-```
-
-then run `import publish_validator.hosts.blender as b; b.register()` in the
+While developing, skip the build. Start Blender with `PYTHONPATH=$PWD/src blender`
+and run `import publish_validator.hosts.blender as pv; pv.register()` in the
 Python console.
 
-### Headless / publish hook
+## Without a UI
 
 ```bash
 blender -b scene.blend --python-exit-code 1 \
   --python-expr "import sys; from publish_validator.cli import main; sys.exit(main())" \
-  -- --all --json
+  -- --all
 ```
 
-Exit code: 0 means nothing blocks the publish, 1 means blocked, 2 means a usage error.
+The exit code is 0 if nothing blocks the publish, 1 if something does, and 2 for
+usage errors. Add `--json` for a machine-readable report.
 
-From Python inside any host:
+From Python, inside any of the supported applications:
 
 ```python
-from publish_validator import Validator, format_text
+from publish_validator import Validator
 from publish_validator.hosts import current_host
 
 report = Validator(current_host()).run()   # validates the selected asset
-print(format_text(report))
-if not report.passed:
-    raise RuntimeError("publish blocked")
+print(report.as_text())
 ```
 
-## How it fits together
+## How it works
 
 ```
- Host ──selection──▶ Resolver ──Subject──▶ Registry.applicable() ──checks──▶ Runner ──▶ Report
- (Blender/Maya/…)    (pv_* props,         (filters by host,                (isolates     (text, JSON,
-                      or your pipeline)    task, asset type)                 errors, fix,  UI, exit code)
-                                                                             re-validate)
-                      Config (TOML layers) ─────────────────────────────────┘
+selection ─▶ resolver ─▶ subject ─▶ checks that apply ─▶ run each check ─▶ report
+             (finds the    (name,     (by host, task       (a crash in one     (panel, text,
+              asset root)   type,      and asset type)      check never stops   JSON, exit code)
+                            task)                           the others)
 ```
 
-| Piece | Where | Responsibility |
-|---|---|---|
-| `Check` | `core/check.py` | Base class: metadata, settings, `validate` and optional `fix` |
-| `discover` / `Registry` | `core/discovery.py`, `core/registry.py` | Load built-in, entry-point and folder checks; report load errors and duplicate ids |
-| `Config` | `core/config.py` | Layered TOML: check paths, resolver, per-check overrides |
-| `Subject` / resolvers | `core/subject.py` | What is being validated. `PropertyResolver` is the default |
-| `Host` | `core/host.py` | Small adapter interface per application |
-| `run` / `Observer` | `core/runner.py` | Runs checks, catches errors per check, fixes and re-validates, emits progress events |
-| `Validator` | `core/validator.py` | Facade used by the UI, CLI and hooks |
-| Hosts | `hosts/blender` (full), `hosts/maya`, `hosts/houdini` (untested stubs) | Scene access, selection, the Blender UI |
+| File | What it does |
+|---|---|
+| `core/check.py` | `Check`, the base class every check inherits from, and `Context`, what a check gets to work with |
+| `core/validator.py` | `Validator`, the object the panel and command line use, plus the code that runs each check |
+| `core/loader.py` | Finds check files in folders and loads them |
+| `core/config.py` | Reads the studio and project TOML files |
+| `core/subject.py` | Works out which asset is selected (`PropertyResolver`) |
+| `core/host.py` | `Host`, the base class for each application |
+| `core/results.py` | Issues, results and the report (with text and JSON output) |
+| `hosts/blender/` | The Blender host and sidebar panel |
+| `hosts/maya/`, `hosts/houdini/` | Hosts for Maya and Houdini. Not yet tested in either application |
+| `checks/` | Built-in checks |
+| `testing.py` | `FakeNode` and `FakeHost`, for testing checks without an application |
 
-### Plugging in a pipeline
+### Using your pipeline's asset data
 
-To read asset info from your pipeline instead of `pv_*` properties, write a
-resolver and name it in config:
-
-```python
-class PipelineResolver:
-    def resolve(self, host, node=None) -> Subject: ...   # raise ResolveError("message for artist")
-    def find_all(self, host) -> list[Subject]: ...
-```
+If your pipeline stores asset information somewhere other than `pv_*`
+properties, write a resolver class with `resolve(host, node=None)` and
+`find_all(host)` methods. Then name it in config:
 
 ```toml
 resolver = "my_pipeline.validator:PipelineResolver"
 ```
 
-The simplest route is to subclass `PropertyResolver`; for example, set
-`prefix = "studio_"` to use different property names.
+Subclassing `PropertyResolver` is the easiest start. For example, set
+`prefix = "studio_"` to read `studio_task` and so on.
 
 ### Supporting another application
 
-Subclass `publish_validator.Host` and implement `selection`, `select`, `find`,
-`parent`, `children`, `get_property` and `find_by_property`. Then add it to
-`HOSTS` in `hosts/__init__.py`. Add any helper methods your checks need.
+Subclass `Host` and fill in `selection`, `select`, `find`, `parent`, `children`,
+`get_property` and `find_by_property`. Then add the application to
+`current_host()` in `hosts/__init__.py`.
 
 ## Development
 
 ```bash
-uv run --python 3.11 --group dev pytest        # core tests (also run on 3.13)
-uv run --group dev ruff check && uv run --group dev ruff format --check
+uv run --python 3.11 --group dev pytest     # core tests (also run them with --python 3.13)
+uv run --group dev ruff check
 blender -b --factory-startup --python-exit-code 1 --python tests/blender/run.py
-publish-validator --list --path examples/studio_checks
 ```
 
-The code targets Python 3.11 syntax (Maya 2026) and is tested on 3.13
-(Blender 5.1+). Don't use 3.12+ only syntax.
+Write code for Python 3.11 (Maya 2026); Blender 5.1+ uses 3.13.
 
-`Inspiration/` (ignored by git) holds the previous PAV tool, kept for reference
-while porting its checks.
+`Inspiration/` (not in git) holds the old PAV tool for reference.
