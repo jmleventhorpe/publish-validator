@@ -1,7 +1,7 @@
 import pytest
 
 from publish_validator import FAILED, FIXED, PASSED, Check, Subject
-from publish_validator.testing import FakeNode, run_check
+from publish_validator.testing import FakeNode, run_check_on
 
 
 class UVNaming(Check):
@@ -57,7 +57,23 @@ def test_applies_to():
 
 def test_run_and_fix():
     root = FakeNode("root", FakeNode("a"), FakeNode("b"))
-    assert run_check(TooManyChildren, root).status == FAILED
-    assert run_check(TooManyChildren, root, settings={"limit": 5}).status == PASSED
-    assert run_check(TooManyChildren, root, fix=True).status == FIXED
+    assert run_check_on(TooManyChildren, root).status == FAILED
+    assert run_check_on(TooManyChildren, root, settings={"limit": 5}).status == PASSED
+    assert run_check_on(TooManyChildren, root, fix=True).status == FIXED
     assert len(root.children) == 1
+
+
+def test_a_single_name_can_be_written_as_a_string():
+    class StringTasks(Check):
+        hosts = "blender"
+        tasks = "model"
+
+        def validate(self, ctx):
+            return []
+
+    assert StringTasks.hosts == ["blender"]
+    assert StringTasks.applies_to("blender", Subject("x", None, "model", root=None))
+    # Used to crash with a TypeError when the asset had no task.
+    assert not StringTasks.applies_to("blender", Subject("x", None, None, root=None))
+    # And "mod" used to count as matching "model".
+    assert not StringTasks.applies_to("blender", Subject("x", None, "mod", root=None))

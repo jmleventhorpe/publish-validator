@@ -23,7 +23,7 @@ WHEELS = EXTENSION / "wheels"
 DIST = ROOT / "dist"
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--blender", default=shutil.which("blender") or "blender")
     args = parser.parse_args()
@@ -46,19 +46,9 @@ def main() -> int:
     manifest.write_text(text)
 
     DIST.mkdir(exist_ok=True)
-    subprocess.run(
-        [
-            args.blender,
-            "--command",
-            "extension",
-            "build",
-            "--source-dir",
-            str(EXTENSION),
-            "--output-dir",
-            str(DIST),
-        ],
-        check=True,
-    )
+    command = [args.blender, "--command", "extension", "build"]
+    command += ["--source-dir", str(EXTENSION), "--output-dir", str(DIST)]
+    subprocess.run(command, check=True)
     print(f"Built {DIST / f'publish_validator-{version}.zip'}")
     return 0
 

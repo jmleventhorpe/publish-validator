@@ -57,7 +57,18 @@ def main(args=None):
         print(error, file=sys.stderr)
         return 2
 
-    validator = Validator(host, config, check_paths=options.path)
+    try:
+        validator = Validator(host, config, check_paths=options.path)
+    except ConfigError as error:
+        print(error, file=sys.stderr)
+        return 2
+
+    if options.only:
+        known = [check.__name__ for check in validator.checks]
+        for name in options.only:
+            if name not in known:
+                print(f"Warning: there is no check called {name}.", file=sys.stderr)
+
     try:
         if options.all:
             reports = validator.run_all(options.fix, options.only)
@@ -70,7 +81,7 @@ def main(args=None):
                     return 2
             reports = [validator.run(validator.resolve(node), options.fix, options.only)]
     except ResolveError as error:
-        print(error, file=sys.stderr)
+        print(f"{error} On the command line, use --root NAME or --all.", file=sys.stderr)
         return 2
 
     if not reports:

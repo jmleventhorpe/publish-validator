@@ -1,11 +1,11 @@
 """Helpers for testing checks without opening Blender, Maya or Houdini.
 
     from publish_validator import FAILED
-    from publish_validator.testing import FakeNode, run_check
+    from publish_validator.testing import FakeNode, run_check_on
 
     def test_empty_root():
         root = FakeNode("chair")
-        assert run_check(RootNotEmpty, root).status == FAILED
+        assert run_check_on(RootNotEmpty, root).status == FAILED
 
 FakeNode takes any extra attributes, so FakeNode("cube", scale=(2, 1, 1)) works
 for a check that reads node.scale.
@@ -15,7 +15,7 @@ from .core.check import Context
 from .core.host import Host
 from .core.results import Component
 from .core.subject import Subject
-from .core.validator import run_check as run_one_check
+from .core.validator import run_check
 
 
 class FakeNode:
@@ -85,7 +85,7 @@ class FakeHost(Host):
         return node.name
 
 
-def run_check(check_class, root, fix=False, settings=None, task=None, asset_type=None):
+def run_check_on(check_class, root, fix=False, settings=None, task=None, asset_type=None):
     """Run one check on a FakeNode tree and return its CheckResult.
 
     The check's hosts/tasks/asset_types are ignored, so it always runs.
@@ -93,4 +93,4 @@ def run_check(check_class, root, fix=False, settings=None, task=None, asset_type
     host = FakeHost(root)
     subject = Subject(name=root.name, asset_type=asset_type, task=task, root=root)
     options = {"settings": settings or {}}
-    return run_one_check(check_class, Context(subject, host), options, fix)
+    return run_check(check_class, Context(subject, host), options, fix)

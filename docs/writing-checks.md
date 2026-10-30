@@ -42,7 +42,7 @@ Any of these folders is loaded:
 
 Every `.py` file in those folders is loaded, including files in subfolders, with these rules:
 
-- **Files and folders starting with `_` are not loaded.** Use that for shared helper code (`_utils.py`).
+- **Files and folders starting with `_` are not loaded as checks.** Use that for shared helper code: a check can `from _utils import ...` a helper file in its own folder, and ↻ reloads helpers too.
 - **A folder called `blender`, `maya` or `houdini` only loads in that application.**
 - **A file that can't import `bpy`, `maya` or `hou` is skipped quietly** when you're in a different application.
 - **Any other error in a file is shown as "could not load".** The other files still load.
@@ -185,13 +185,13 @@ without opening an application:
 
 ```python
 from publish_validator import FAILED
-from publish_validator.testing import FakeNode, run_check
+from publish_validator.testing import FakeNode, run_check_on
 from my_checks.hierarchy import HasGeoGroup
 
 
 def test_missing_geo_group():
     root = FakeNode("chair", FakeNode("render"))
-    assert run_check(HasGeoGroup, root).status == FAILED
+    assert run_check_on(HasGeoGroup, root).status == FAILED
 ```
 
 `FakeNode` accepts any attribute (`FakeNode("cube", scale=(2, 1, 1))`).

@@ -25,6 +25,12 @@ class Check:
         if "label" not in cls.__dict__:
             cls.label = spaced_name(cls.__name__)
 
+        # Allow hosts = "blender" as well as hosts = ["blender"].
+        for attribute in ("hosts", "tasks", "asset_types"):
+            value = getattr(cls, attribute)
+            if isinstance(value, str):
+                setattr(cls, attribute, [value])
+
     def __init__(self, settings=None):
         settings = settings or {}
         unknown = set(settings) - set(self.settings)

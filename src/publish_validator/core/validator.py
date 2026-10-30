@@ -10,7 +10,7 @@ import importlib
 import traceback
 
 from .check import Context
-from .config import load_config
+from .config import ConfigError, load_config
 from .loader import load_checks
 from .results import (
     ERROR,
@@ -143,5 +143,8 @@ def make_resolver(path):
     if not path:
         return PropertyResolver()
     module_name, class_name = path.split(":")
-    module = importlib.import_module(module_name)
-    return getattr(module, class_name)()
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, class_name)()
+    except Exception as error:
+        raise ConfigError(f"Could not load the resolver {path}: {error}") from error

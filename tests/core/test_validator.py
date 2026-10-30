@@ -145,3 +145,8 @@ def test_select():
     result = validator.run().get("Scale")
     validator.select(result.targets)
     assert [node.name for node in validator.host.selection()] == ["seat"]
+
+
+def test_summary_order_is_always_the_same():
+    report = run(Warns, Scale, Crashes)
+    assert report.summary() == "1 warning, 1 failed, 1 errored"

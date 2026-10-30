@@ -1,6 +1,6 @@
 import pytest
 
-from publish_validator import Config, PropertyResolver, ResolveError, Validator
+from publish_validator import Config, ConfigError, PropertyResolver, ResolveError, Validator
 from publish_validator.testing import FakeHost, FakeNode
 
 
@@ -55,3 +55,10 @@ def test_custom_resolver_from_config(tmp_path, monkeypatch):
     root = FakeNode("prop", props={"studio_task": "model"})
     validator = Validator(FakeHost(root), config=config)
     assert validator.resolve(root).task == "model"
+
+
+def test_a_bad_resolver_is_a_config_error():
+    config = Config()
+    config.resolver = "no.such.module:Resolver"
+    with pytest.raises(ConfigError, match="Could not load the resolver"):
+        Validator(FakeHost(), config=config)

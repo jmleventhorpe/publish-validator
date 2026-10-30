@@ -15,6 +15,7 @@ FAILED = "failed"
 FIXED = "fixed"
 ERRORED = "errored"  # the check itself crashed, which says nothing about the asset
 SKIPPED = "skipped"
+STATUSES = (PASSED, FIXED, WARNING, FAILED, ERRORED, SKIPPED)
 BLOCKING = (FAILED, ERRORED)
 
 
@@ -50,6 +51,11 @@ class CheckResult:
     error: str = ""  # the traceback, if the check crashed
 
     @property
+    def short_error(self):
+        """The last line of the traceback, e.g. "KeyError: 'scale'"."""
+        return last_line(self.error)
+
+    @property
     def targets(self):
         """Every target of every issue, without duplicates."""
         targets = []
@@ -65,7 +71,11 @@ class LoadError:
     """A check file or setting that could not be loaded."""
 
     source: str
-    message: str
+    message: str  # can be a whole traceback
+
+    @property
+    def short_message(self):
+        return last_line(self.message)
 
 
 @dataclass
@@ -89,10 +99,9 @@ class Report:
 
     def summary(self):
         """e.g. "4 passed, 1 failed"."""
-        counts = {}
-        for result in self.results:
-            counts[result.status] = counts.get(result.status, 0) + 1
-        return ", ".join(f"{count} {status}" for status, count in counts.items())
+        statuses = [result.status for result in self.results]
+        counts = [f"{statuses.count(status)} {status}" for status in STATUSES if status in statuses]
+        return ", ".join(counts)
 
     def as_dict(self):
         return {
@@ -139,14 +148,19 @@ class Report:
                 for issue in result.fixed_issues:
                     lines.append(f"      fixed: {issue.message}")
                 if result.error:
-                    lines.append(f"      ! {result.error.strip().splitlines()[-1]}")
+                    lines.append(f"      ! {result.short_error}")
             lines.append("")
 
         for error in self.load_errors:
-            lines.append(f"Could not load {error.source}: {error.message.strip().splitlines()[-1]}")
+            lines.append(f"Could not load {error.source}: {error.short_message}")
 
         lines.append(f"{'PASSED' if self.passed else 'BLOCKED'}: {self.summary()}")
         return "\n".join(lines)
+
+
+def last_line(text):
+    lines = text.strip().splitlines()
+    return lines[-1] if lines else ""
 
 
 def issue_as_dict(issue):

@@ -140,6 +140,7 @@ def test_command_line():
     assert cli_main(["--root", "table_root"]) == 1
     assert cli_main(["--all", "--fix"]) == 0
     assert cli_main(["--root", "missing"]) == 2
+    assert cli_main([]) == 2  # nothing selected: tells you to use --root or --all
 
 
 def test_studio_check_folder():

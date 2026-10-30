@@ -40,21 +40,34 @@ class Config:
         if unknown:
             raise ConfigError(f"{path}: unknown option(s) {', '.join(sorted(unknown))}")
 
-        for folder in data.get("check_paths", []):
+        check_paths = data.get("check_paths", [])
+        if not isinstance(check_paths, list):
+            raise ConfigError(f'{path}: check_paths must be a list, e.g. check_paths = ["checks"]')
+        for folder in check_paths:
             # Relative folders are relative to the config file, not the working directory.
             self.check_paths.append(path.parent / os.path.expandvars(folder))
 
-        self.resolver = data.get("resolver", self.resolver)
+        resolver = data.get("resolver")
+        if resolver is not None:
+            if ":" not in str(resolver):
+                raise ConfigError(f'{path}: resolver must look like "module:ClassName"')
+            self.resolver = resolver
 
         for name, options in data.get("checks", {}).items():
             unknown = set(options) - {"enabled", "severity", "settings"}
             if unknown:
                 raise ConfigError(f"{path}: unknown option(s) for {name}: {', '.join(unknown)}")
+            if "enabled" in options and not isinstance(options["enabled"], bool):
+                raise ConfigError(
+                    f"{path}: enabled for {name} must be true or false, without quotes"
+                )
             severity = options.get("severity")
             if severity is not None and severity not in SEVERITIES:
                 raise ConfigError(
                     f"{path}: severity for {name} must be one of {', '.join(SEVERITIES)}"
                 )
+            if not isinstance(options.get("settings", {}), dict):
+                raise ConfigError(f"{path}: settings for {name} must be a table, e.g. {{ x = 1 }}")
 
             current = self.checks.setdefault(name, {"settings": {}})
             for key in ("enabled", "severity"):

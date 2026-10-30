@@ -41,6 +41,10 @@ def test_later_files_win(tmp_path, monkeypatch):
         ("[checks.A]\nenable = true", "unknown option"),
         ('[checks.A]\nseverity = "fatal"', "severity for A must be"),
         ("checks = [", "Could not read"),
+        ('[checks.A]\nenabled = "false"', "true or false, without quotes"),
+        ("[checks.A]\nsettings = 5", "must be a table"),
+        ('check_paths = "checks"', "must be a list"),
+        ('resolver = "no_colon"', "module:ClassName"),
     ],
 )
 def test_mistakes_are_reported(tmp_path, text, message):

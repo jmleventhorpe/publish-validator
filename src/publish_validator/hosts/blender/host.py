@@ -28,7 +28,7 @@ class BlenderHost(Host):
             if isinstance(obj, bpy.types.Object) and obj not in objects:
                 objects.append(obj)
 
-        if bpy.context.mode != "OBJECT":
+        if bpy.context.mode != "OBJECT" and bpy.ops.object.mode_set.poll():
             bpy.ops.object.mode_set(mode="OBJECT")
 
         view_layer = bpy.context.view_layer
@@ -44,7 +44,7 @@ class BlenderHost(Host):
             select_components(components)
 
     def find(self, name):
-        return bpy.data.objects.get(name)
+        return bpy.context.scene.objects.get(name)
 
     def parent(self, node):
         return node.parent

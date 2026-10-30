@@ -97,3 +97,25 @@ def test_edited_files_are_picked_up(tmp_path):
     assert "Before" in names(load_checks([tmp_path])[0])
     write_check(path, "After")
     assert "After" in names(load_checks([tmp_path])[0])
+
+
+def test_checks_can_import_helper_files(tmp_path):
+    (tmp_path / "_shared.py").write_text("PREFIX = 'geo'\n")
+    (tmp_path / "uses_helper.py").write_text(
+        "from _shared import PREFIX\n"
+        "from publish_validator import Check\n"
+        "class UsesHelper(Check):\n"
+        "    prefix = PREFIX\n"
+        "    def validate(self, ctx):\n"
+        "        return []\n"
+    )
+    checks, errors = load_checks([tmp_path])
+    assert errors == []
+    helper_check = next(c for c in checks if c.__name__ == "UsesHelper")
+    assert helper_check.prefix == "geo"
+
+    # Editing the helper is picked up on the next load, like editing a check.
+    (tmp_path / "_shared.py").write_text("PREFIX = 'render'\n")
+    checks, _ = load_checks([tmp_path])
+    helper_check = next(c for c in checks if c.__name__ == "UsesHelper")
+    assert helper_check.prefix == "render"

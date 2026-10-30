@@ -24,6 +24,9 @@ HOST_FOLDERS = {"blender", "maya", "houdini"}
 # them is skipped quietly elsewhere, instead of being reported as broken.
 HOST_MODULES = {"bpy", "bmesh", "mathutils", "maya", "pymel", "hou"}
 
+# Folders we added to sys.path so check files can import their helper files.
+helper_folders = set()
+
 
 def load_checks(folders=(), host_name=None):
     """Load every check class. Returns (checks, load_errors).
@@ -36,6 +39,7 @@ def load_checks(folders=(), host_name=None):
     checks = {}
     errors = []
     seen_folders = []
+    forget_helper_modules()
     for folder in all_folders:
         if not folder:
             continue
@@ -87,12 +91,27 @@ def find_check_files(folder, host_name=None):
 
 def import_file(path):
     """Run a .py file as a fresh module, so edited files are picked up on every load."""
+    # Let the file import helper files (like _utils.py) from its own folder.
+    # Appended rather than inserted, so a check file can never hide a real module.
+    folder = str(path.parent)
+    if folder not in sys.path:
+        sys.path.append(folder)
+        helper_folders.add(folder)
+
     name = f"publish_validator_checks.{path.stem}"
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module  # some tools (dataclasses, pickle) expect this
     spec.loader.exec_module(module)
     return module
+
+
+def forget_helper_modules():
+    """Forget helper files imported by checks, so edits to them are picked up on reload."""
+    for name, module in list(sys.modules.items()):
+        file = getattr(module, "__file__", None)
+        if file and str(Path(file).parent) in helper_folders:
+            del sys.modules[name]
 
 
 def checks_in_module(module):

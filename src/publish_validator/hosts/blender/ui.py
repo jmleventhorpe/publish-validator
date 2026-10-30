@@ -27,6 +27,9 @@ class PanelState:
     """What the panel remembers between clicks. Blender panels can't hold Python objects."""
 
     def __init__(self):
+        self.reset()
+
+    def reset(self):
         self.validator = None
         self.report = None
         self.message = ""
@@ -137,9 +140,7 @@ class PV_OT_reload(bpy.types.Operator):
     bl_label = "Reload Checks"
 
     def execute(self, context):
-        state.validator = None
-        state.report = None
-        state.message = ""
+        state.reset()
         validator = state.get_validator()
         if validator is None:
             self.report({"ERROR"}, state.message)
@@ -207,7 +208,7 @@ class PV_PT_panel(bpy.types.Panel):
             box.alert = True
             box.label(text=f"{len(report.load_errors)} file(s) could not load:", icon="ERROR")
             for error in report.load_errors[:5]:
-                box.label(text=f"{error.source}: {error.message.strip().splitlines()[-1]}")
+                box.label(text=f"{error.source}: {error.short_message}")
 
     def draw_result(self, column, result):
         is_open = result.check_id in state.open_checks
@@ -235,7 +236,7 @@ class PV_PT_panel(bpy.types.Panel):
         for issue in result.fixed_issues:
             details.label(text=f"Fixed: {issue.message}", icon="CHECKMARK")
         if result.error:
-            details.label(text=result.error.strip().splitlines()[-1], icon="ERROR")
+            details.label(text=result.short_error, icon="ERROR")
         if not (result.issues or result.fixed_issues or result.error):
             details.label(text=result.description.split("\n")[0] or "No problems found.")
 
@@ -251,4 +252,4 @@ def register():
 def unregister():
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
-    state.__init__()
+    state.reset()
