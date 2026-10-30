@@ -1,0 +1,20 @@
+# Example studio config. Use it with:
+#   export PUBLISH_VALIDATOR_CONFIG=/path/to/examples/studio_checks/studio.toml
+# Layer more files after it (separated by ":" on Linux/macOS, ";" on Windows)
+# for project or user overrides; later files win.
+
+# Load the example checks next to this file.
+check_paths = ["."]
+
+# Built-in check made less strict for this studio.
+[checks."transforms.unit_scale"]
+severity = "warning"
+settings = { tolerance = 0.0001 }
+
+# Allow lights in assets (e.g. practical lamps).
+[checks."objects.allowed_object_types".settings]
+allowed = ["MESH", "EMPTY", "LIGHT"]
+
+# Studio check tweaks.
+[checks."studio.unapplied_modifiers".settings]
+allowed = ["SUBSURF", "BEVEL"]

@@ -1,0 +1,18 @@
+schema_version = "1.0.0"
+
+id = "publish_validator"
+version = "0.1.0"
+name = "Publish Validator"
+tagline = "Extensible sanity checks before publishing assets"
+maintainer = "Publish Validator contributors"
+type = "add-on"
+tags = ["Pipeline", "Development"]
+
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+# Filled in by scripts/build_blender_extension.py
+wheels = ["./wheels/publish_validator-0.1.0-py3-none-any.whl"]
+
+[permissions]
+files = "Read check files and config from disk"

@@ -1,0 +1,12 @@
+# Old PAV code kept locally for reference only (has its own .git)
+Inspiration/
+
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+blender_extension/wheels/
