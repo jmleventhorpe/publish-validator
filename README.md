@@ -19,11 +19,21 @@ application with Python 3.11 or newer.
    | `pv_asset_name` | `chair` | Optional. Defaults to the object's name |
 
 2. **Install the extension:** run `python scripts/build_blender_extension.py`, then go to Preferences > Get Extensions > Install from Disk and pick `dist/publish_validator-*.zip`.
-3. **Run it:** select anything in the asset, open View3D > Sidebar (N) > **Validate**, and press **Validate** or **Fix**.
+3. **Run it:** select anything in the asset, open View3D > Sidebar (N) > **Validate**, and press **Validate**.
 
-While developing, skip the build. Start Blender with `PYTHONPATH=$PWD/src blender`
-and run `import publish_validator.hosts.blender as pv; pv.register()` in the
-Python console.
+The panel lists every check that applies, grouped by category, with a green, orange
+or red icon once validated. Click a check to see its details and the problems it
+found. Untick checks to skip them while you work (a headless publish still runs them all).
+Each row has its own Fix and Select buttons, and **Fix All** fixes everything that
+can fix itself. If you change the asset after validating, the panel says the results
+are out of date.
+
+To try it without installing anything, run the demo, which builds a test asset with
+a few deliberate problems:
+
+```bash
+blender --python scripts/blender_demo.py
+```
 
 ## Without a UI
 
@@ -45,6 +55,33 @@ from publish_validator.hosts import current_host
 report = Validator(current_host()).run()   # validates the selected asset
 print(report.as_text())
 ```
+
+## Built-in checks
+
+All of these run for the **model** task. Studios can switch any off, change its
+severity or tune its settings in config (see [docs/writing-checks.md](docs/writing-checks.md)).
+None of the checks below fix anything automatically, except Unit Scale.
+
+| Check | Category | Looks for |
+|---|---|---|
+| Root Not Empty | Structure | An asset root with nothing under it |
+| Group Setup | Structure | The standard layout: root > `geo` (> `render`, `proxy`) and `simproxy` |
+| Allowed Object Types | Structure | Cameras, lights and other non-mesh, non-empty objects |
+| Geo Children | Structure | Meshes parented under other meshes |
+| Naming Convention | Naming | `seat_GEO`, `L_frontLeg_GEO`, `seat_PROXY` under proxy, `legs_GRP`; no `.001` endings |
+| Mesh Data Names | Naming | Mesh data named differently from its object |
+| Unit Scale | Transforms | Mesh objects with a scale other than 1 (can fix) |
+| Zero Transforms | Transforms | Objects whose origin isn't at the world centre, or that are rotated |
+| Has Animation | Transforms | Keyframes, drivers or NLA tracks |
+| Unapplied Modifiers | Geometry | Modifiers other than Subdivision (warning) |
+| Ngons | Geometry | Faces with more than 4 corners |
+| Zero Area Faces | Geometry | Faces squashed flat to nothing |
+| Lamina Faces | Geometry | Faces that share all their corners with another face |
+| Double Verts | Geometry | Vertices sitting on top of each other |
+| Non Manifold | Geometry | Edges shared by more than two faces |
+| Mesh Holes | Geometry | Open borders, i.e. edges with a face on one side only (warning) |
+
+Every check except Root Not Empty and Group Setup is Blender-only for now.
 
 ## How it works
 

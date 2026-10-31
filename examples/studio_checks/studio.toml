@@ -4,7 +4,7 @@
 # You can list several files, separated by ":" (";" on Windows). Later files
 # win, so put the studio file first and project or user files after it.
 
-# Load the example checks in this folder.
+# Load the example studio checks in this folder (blender/poly_budget.py).
 check_paths = ["."]
 
 # A custom resolver, if your pipeline stores asset info somewhere else.
@@ -12,11 +12,17 @@ check_paths = ["."]
 
 # Checks are referred to by their class name.
 [checks.UnitScale]
-severity = "warning"
 settings = { tolerance = 0.0001 }
 
 [checks.AllowedObjectTypes]
 settings = { allowed = ["MESH", "EMPTY", "LIGHT"] }
+
+[checks.PolyBudget]
+settings = { max_faces = 20000 }
+
+# Make a rule a warning instead of blocking the publish:
+# [checks.NamingConvention]
+# severity = "warning"
 
 [checks.UnappliedModifiers]
 settings = { allowed = ["SUBSURF", "BEVEL"] }

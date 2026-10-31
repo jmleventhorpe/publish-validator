@@ -8,35 +8,76 @@ Each test_ function starts from an empty scene. Exits with code 1 if any test fa
 import sys
 import traceback
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
 import bpy  # noqa: E402
+from mathutils import Matrix  # noqa: E402
 
-from publish_validator import FAILED, FIXED, PASSED, Component, Validator  # noqa: E402
+from publish_validator import (  # noqa: E402
+    FAILED,
+    FIXED,
+    PASSED,
+    SKIPPED,
+    WARNING,
+    Component,
+    Validator,
+)
 from publish_validator.cli import main as cli_main  # noqa: E402
 from publish_validator.hosts import current_host  # noqa: E402
 from publish_validator.hosts.blender import BlenderHost, register, unregister  # noqa: E402
 from publish_validator.hosts.blender.ui import state  # noqa: E402
 
 
+def add_empty(name, parent=None):
+    obj = bpy.data.objects.new(name, None)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.parent = parent
+    return obj
+
+
 def make_asset(name="chair", task="model", asset_type="prop"):
-    root = bpy.data.objects.new(f"{name}_root", None)
-    bpy.context.scene.collection.objects.link(root)
+    """An asset with the standard groups and nothing in them yet."""
+    root = add_empty(f"{name}_root")
     root["pv_task"] = task
     root["pv_asset_type"] = asset_type
     root["pv_asset_name"] = name
-    return root
+    geo = add_empty("geo", root)
+    asset = SimpleNamespace(root=root, geo=geo)
+    asset.render = add_empty("render", geo)
+    asset.proxy = add_empty("proxy", geo)
+    asset.simproxy = add_empty("simproxy", root)
+    return asset
 
 
-def add_cube(name, parent, scale=(1, 1, 1), location=(0, 0, 0)):
-    bpy.ops.mesh.primitive_cube_add(location=location)
+def add_cube(name, parent, scale=(1, 1, 1), offset=(0, 0, 0)):
+    """A cube with its position baked into the mesh, so the object sits at zero."""
+    bpy.ops.mesh.primitive_cube_add()
     cube = bpy.context.active_object
     cube.name = name
+    cube.data.name = name
+    cube.data.transform(Matrix.Translation(offset))
     cube.parent = parent
     cube.scale = scale
     return cube
+
+
+def add_mesh(name, parent, vertices, faces):
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(vertices, [], faces)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.parent = parent
+    return obj
+
+
+def add_lamp(parent):
+    lamp = bpy.data.objects.new("lamp", bpy.data.lights.new("lamp", "POINT"))
+    bpy.context.scene.collection.objects.link(lamp)
+    lamp.parent = parent
+    return lamp
 
 
 def select_only(*objects):
@@ -46,16 +87,103 @@ def select_only(*objects):
         obj.select_set(True)
 
 
+def messages(report, check_id):
+    return [issue.message for issue in report.get(check_id).issues]
+
+
 def test_finds_the_blender_host():
     assert current_host().name == "blender"
 
 
+def test_a_clean_asset_passes_every_check():
+    asset = make_asset()
+    add_cube("seat_GEO", asset.render)
+    add_cube("seat_PROXY", asset.proxy)
+    select_only(asset.root)
+    report = Validator(BlenderHost()).run()
+    print(report.as_text())
+    assert report.passed
+    assert {result.status for result in report.results} == {PASSED}
+
+
+def test_each_check_finds_its_problem():
+    asset = make_asset()
+    render = asset.render
+    add_cube("good_GEO", render)
+    add_cube("bad.001", render)
+    add_cube("wrong_GEO", asset.proxy)  # proxies end in _PROXY
+    add_empty("junk", asset.root)
+
+    renamed = add_cube("renamed_GEO", render)
+    renamed.data.name = "Cube"
+
+    parent = add_cube("parent_GEO", render)
+    add_cube("child_GEO", parent)
+
+    moved = add_cube("moved_GEO", render)
+    moved.location = (1, 0, 0)
+
+    animated = add_cube("animated_GEO", render)
+    animated.keyframe_insert("location", frame=1)
+
+    bpy.ops.mesh.primitive_cylinder_add(vertices=8, end_fill_type="NGON")
+    bpy.context.active_object.name = "ngon_GEO"
+    bpy.context.active_object.data.name = "ngon_GEO"
+    bpy.context.active_object.parent = render
+
+    add_mesh("flat_GEO", render, [(0, 0, 0), (1, 0, 0), (2, 0, 0)], [(0, 1, 2)])
+    add_mesh(
+        "stacked_GEO",
+        render,
+        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
+        [(0, 1, 2, 3), (0, 1, 2, 3)],
+    )
+    add_mesh(
+        "doubled_GEO",
+        render,
+        [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 0), (1, 0, 0), (0, -1, 0)],
+        [(0, 1, 2), (3, 5, 4)],
+    )
+    add_mesh(
+        "fin_GEO",
+        render,
+        [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1)],
+        [(0, 1, 2), (0, 1, 3), (0, 1, 4)],
+    )
+    select_only(asset.root)
+
+    report = Validator(BlenderHost()).run()
+    print(report.as_text())
+
+    assert "'junk' shouldn't be directly under the asset root" in messages(report, "GroupSetup")
+    naming = messages(report, "NamingConvention")
+    assert "bad.001 has Blender's automatic number ending" in naming
+    assert "wrong_GEO should end in _PROXY" in naming
+    assert "junk should end in _GRP" in naming
+    assert messages(report, "MeshDataNames") == ["renamed_GEO uses mesh data called Cube"]
+    assert messages(report, "GeoChildren") == ["parent_GEO has meshes under it: child_GEO"]
+    assert messages(report, "ZeroTransforms") == ["moved_GEO is moved 1, 0, 0"]
+    assert messages(report, "HasAnimation") == ["animated_GEO has keyframes"]
+    assert messages(report, "Ngons") == ["ngon_GEO has 2 ngons"]
+    assert messages(report, "ZeroAreaFaces") == ["flat_GEO has 1 faces with no area"]
+    assert messages(report, "LaminaFaces") == ["stacked_GEO has 1 pairs of lamina faces"]
+    assert messages(report, "DoubleVerts") == ["doubled_GEO has 4 overlapping vertices"]  # 2 pairs
+    assert messages(report, "NonManifold") == ["fin_GEO has 1 non-manifold edges"]
+    assert report.get("MeshHoles").status == WARNING
+    assert any(m.startswith("flat_GEO has") for m in messages(report, "MeshHoles"))
+
+    # Geometry problems point at the exact elements.
+    ngons = report.get("Ngons").issues[0].targets[0]
+    assert isinstance(ngons, Component) and ngons.kind == "face" and len(ngons.indices) == 2
+
+
 def test_validate_and_fix_scale():
-    root = make_asset()
-    seat = add_cube("seat", root, scale=(2, 1, 1), location=(0, 0, 3))
-    leg = add_cube("leg", seat, location=(5, 0, 0))
+    asset = make_asset()
+    seat = add_cube("seat_GEO", asset.render, scale=(2, 1, 1), offset=(0, 0, 3))
+    legs = add_empty("legs_GRP", seat)
+    leg = add_cube("leg_GEO", legs, offset=(5, 0, 0))
     bpy.context.view_layer.update()
-    leg_position = leg.matrix_world.translation.copy()
+    leg_points = [leg.matrix_world @ vertex.co for vertex in leg.data.vertices]
     seat_points = [seat.matrix_world @ vertex.co for vertex in seat.data.vertices]
     select_only(leg)  # selecting a child should still find the asset root
 
@@ -63,11 +191,9 @@ def test_validate_and_fix_scale():
     report = validator.run()
     print(report.as_text())
     assert report.subject_name == "chair"
-    assert report.get("RootNotEmpty").status == PASSED
-    assert report.get("AllowedObjectTypes").status == PASSED
     unit_scale = report.get("UnitScale")
     assert unit_scale.status == FAILED
-    assert unit_scale.issues[0].target_names == ["seat"]
+    assert unit_scale.issues[0].target_names == ["seat_GEO"]
 
     validator.select(unit_scale.targets)
     assert BlenderHost().selection() == [seat]
@@ -82,32 +208,28 @@ def test_validate_and_fix_scale():
     bpy.context.view_layer.update()
     for before, vertex in zip(seat_points, seat.data.vertices, strict=True):
         assert (before - seat.matrix_world @ vertex.co).length < 0.00001
-    assert (leg.matrix_world.translation - leg_position).length < 0.00001
-    assert tuple(leg.scale) == (1, 1, 1)
+    for before, vertex in zip(leg_points, leg.data.vertices, strict=True):
+        assert (before - leg.matrix_world @ vertex.co).length < 0.00001
 
 
 def test_checks_are_picked_by_task():
-    root = make_asset(task="lookdev")
-    add_cube("body", root, scale=(3, 3, 3))
-    lamp = bpy.data.objects.new("lamp", bpy.data.lights.new("lamp", "POINT"))
-    bpy.context.scene.collection.objects.link(lamp)
-    lamp.parent = root
-    select_only(root)
+    asset = make_asset(task="lookdev")
+    add_cube("body_GEO", asset.render, scale=(3, 3, 3))
+    add_lamp(asset.render)
+    select_only(asset.root)
 
     report = Validator(BlenderHost()).run()
     assert report.get("UnitScale") is None  # model-only checks
     assert report.get("AllowedObjectTypes") is None
 
-    root["pv_task"] = "model"
+    asset.root["pv_task"] = "model"
     report = Validator(BlenderHost()).run()
-    allowed = report.get("AllowedObjectTypes")
-    assert allowed.status == FAILED
-    assert allowed.issues[0].message == "lamp is a light object"
+    assert messages(report, "AllowedObjectTypes") == ["lamp is a light object"]
 
 
 def test_selecting_faces():
-    root = make_asset()
-    cube = add_cube("cube", root)
+    asset = make_asset()
+    cube = add_cube("cube_GEO", asset.render)
     BlenderHost().select([Component(cube, "face", [0, 2])])
     assert bpy.context.mode == "EDIT_MESH"
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -117,9 +239,9 @@ def test_selecting_faces():
 def test_panel_buttons():
     register()
     try:
-        root = make_asset()
-        add_cube("seat", root, scale=(2, 2, 2))
-        select_only(root)
+        asset = make_asset()
+        add_cube("seat_GEO", asset.render, scale=(2, 2, 2))
+        select_only(asset.root)
         assert bpy.ops.publish_validator.validate() == {"FINISHED"}
         assert state.report.get("UnitScale").status == FAILED
         assert bpy.ops.publish_validator.select(check_id="UnitScale") == {"FINISHED"}
@@ -128,14 +250,66 @@ def test_panel_buttons():
 
         select_only()
         assert bpy.ops.publish_validator.validate() == {"CANCELLED"}
-        assert "Select an asset root" in state.message
+    finally:
+        unregister()
+
+
+def test_panel_checkboxes_fix_one_and_stale():
+    register()
+    try:
+        asset = make_asset()
+        seat = add_cube("seat_GEO", asset.render, scale=(2, 2, 2))
+        lamp = add_lamp(asset.render)
+        select_only(asset.root)
+
+        # Untick all, then tick all, from the buttons above the list.
+        bpy.ops.publish_validator.tick_all(tick=False)
+        bpy.ops.publish_validator.validate()
+        assert {r.status for r in state.report.results} == {SKIPPED}
+        bpy.ops.publish_validator.tick_all(tick=True)
+        assert not state.unticked
+
+        # Unticked checks are skipped, and don't block publishing.
+        bpy.ops.publish_validator.toggle_check(check_id="UnitScale")
+        bpy.ops.publish_validator.toggle_check(check_id="AllowedObjectTypes")
+        assert bpy.ops.publish_validator.validate() == {"FINISHED"}
+        assert state.report.get("UnitScale").status == SKIPPED
+        assert state.report.passed
+
+        # Tick them again: both fail.
+        bpy.ops.publish_validator.toggle_check(check_id="UnitScale")
+        bpy.ops.publish_validator.toggle_check(check_id="AllowedObjectTypes")
+        bpy.ops.publish_validator.validate()
+        assert state.report.get("UnitScale").status == FAILED
+        assert state.report.get("AllowedObjectTypes").status == FAILED
+
+        # Fixing one check leaves the other result alone.
+        assert bpy.ops.publish_validator.fix_one(check_id="UnitScale") == {"FINISHED"}
+        assert state.report.get("UnitScale").status == FIXED
+        assert state.report.get("AllowedObjectTypes").status == FAILED
+        assert tuple(seat.scale) == (1, 1, 1)
+        assert not state.stale  # our own fix doesn't count as a change
+
+        # Select picks what that check found.
+        bpy.ops.publish_validator.select(check_id="AllowedObjectTypes")
+        assert BlenderHost().selection() == [lamp]
+
+        # Selecting doesn't make results out of date; moving something does.
+        select_only(asset.root)
+        bpy.context.view_layer.update()
+        assert not state.stale
+        seat.location.x += 1
+        bpy.context.view_layer.update()
+        assert state.stale
+        bpy.ops.publish_validator.validate()
+        assert not state.stale
     finally:
         unregister()
 
 
 def test_command_line():
-    root = make_asset("table")
-    add_cube("top", root, scale=(1, 1, 0.1))
+    asset = make_asset("table")
+    add_cube("top_GEO", asset.render, scale=(1, 1, 0.1))
     select_only()
     assert cli_main(["--root", "table_root"]) == 1
     assert cli_main(["--all", "--fix"]) == 0
@@ -144,15 +318,14 @@ def test_command_line():
 
 
 def test_studio_check_folder():
-    root = make_asset()
-    add_cube("Seat_px", root)
-    select_only(root)
+    asset = make_asset()
+    add_cube("seat_GEO", asset.render)
+    select_only(asset.root)
     validator = Validator(BlenderHost(), check_paths=[REPO / "examples" / "studio_checks"])
     report = validator.run()
     print(report.as_text())
     assert validator.load_errors == []
-    assert report.get("GeoNaming").status == PASSED
-    assert report.get("UnappliedModifiers").status == PASSED
+    assert report.get("PolyBudget").status == PASSED
 
 
 def main():
