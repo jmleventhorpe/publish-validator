@@ -48,6 +48,9 @@ print(report.as_text())
 
 ## How it works
 
+See [docs/architecture.md](docs/architecture.md) for diagrams of how the pieces
+connect.
+
 ```
 selection ─▶ resolver ─▶ subject ─▶ checks that apply ─▶ run each check ─▶ report
              (finds the    (name,     (by host, task       (a crash in one     (panel, text,
