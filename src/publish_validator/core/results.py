@@ -49,6 +49,8 @@ class CheckResult:
     issues: list = field(default_factory=list)
     fixed_issues: list = field(default_factory=list)
     error: str = ""  # the traceback, if the check crashed
+    can_fix: bool = False  # the check has a fix() method
+    skip_reason: str = ""  # why it was skipped, e.g. "disabled in config"
 
     @property
     def short_error(self):
@@ -97,11 +99,25 @@ class Report:
                 return result
         return None
 
+    def replace(self, result):
+        """Swap in a newer result for the same check, e.g. after fixing just that check."""
+        for index, old in enumerate(self.results):
+            if old.check_id == result.check_id:
+                self.results[index] = result
+                return
+        self.results.append(result)
+
+    def counts(self, results=None):
+        """How many results have each status, e.g. {"passed": 4, "failed": 1}.
+
+        Statuses are always in the same order, and ones with no results are left out.
+        """
+        statuses = [result.status for result in (self.results if results is None else results)]
+        return {status: statuses.count(status) for status in STATUSES if status in statuses}
+
     def summary(self):
         """e.g. "4 passed, 1 failed"."""
-        statuses = [result.status for result in self.results]
-        counts = [f"{statuses.count(status)} {status}" for status in STATUSES if status in statuses]
-        return ", ".join(counts)
+        return ", ".join(f"{count} {status}" for status, count in self.counts().items())
 
     def as_dict(self):
         return {
@@ -114,6 +130,7 @@ class Report:
                     "id": result.check_id,
                     "label": result.label,
                     "status": result.status,
+                    "skip_reason": result.skip_reason,
                     "issues": [issue_as_dict(issue) for issue in result.issues],
                     "fixed": [issue_as_dict(issue) for issue in result.fixed_issues],
                     "error": result.error,

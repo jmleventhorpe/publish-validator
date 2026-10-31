@@ -1,3 +1,5 @@
+import pytest
+
 from publish_validator import (
     ERRORED,
     FAILED,
@@ -182,3 +184,56 @@ def test_config_mistakes_are_reported_before_anything_runs(tmp_path):
     assert "tolerance must be a number like 0.1, not 'high'" in messages[1]
     assert messages[2] == "[checks.Tolerent] doesn't match any check. Check the spelling."
     assert errors[2].source == "project.toml"
+
+
+def config_with(**checks):
+    config = Config()
+    config.checks = {name: {"settings": {}, **options} for name, options in checks.items()}
+    return config
+
+
+def test_unticking_every_check_skips_them_all():
+    # An empty `only` means "nothing selected", not "run everything".
+    report = run(Scale, Warns, only=[])
+    assert {r.status for r in report.results} == {SKIPPED}
+    assert report.passed
+
+
+def test_skip_reasons():
+    config = config_with(Crashes={"enabled": False})
+    report = run(Crashes, Warns, config=config, only=["Crashes"])
+    assert report.get("Crashes").skip_reason == "disabled in config"
+    assert report.get("Warns").skip_reason == "not selected"
+
+
+def test_plan_leaves_out_disabled_checks():
+    validator = Validator(make_scene(), config=config_with(Crashes={"enabled": False}))
+    validator.checks = [Scale, Crashes, Warns]
+    planned = [check.__name__ for check in validator.plan(validator.resolve())]
+    assert planned == ["Scale", "Warns"]
+
+
+def test_run_one_and_replace():
+    validator = Validator(make_scene(), config=Config())
+    validator.checks = [Scale, Warns]
+    report = validator.run()
+    assert report.get("Scale").status == FAILED
+    assert report.get("Scale").can_fix
+    assert not report.get("Warns").can_fix
+
+    assert validator.run_one("Scale").status == FAILED  # no fix: nothing changes
+    fixed = validator.run_one("Scale", fix=True)
+    assert fixed.status == FIXED
+
+    report.replace(fixed)
+    assert report.get("Scale").status == FIXED
+    assert report.get("Warns").status == WARNING
+    assert report.counts() == {"fixed": 1, "warning": 1}
+    assert report.passed
+
+
+def test_run_one_unknown_check():
+    validator = Validator(make_scene(), config=Config())
+    validator.checks = [Scale]
+    with pytest.raises(KeyError, match="No check called Nope"):
+        validator.run_one("Nope")

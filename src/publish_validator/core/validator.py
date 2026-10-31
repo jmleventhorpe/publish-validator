@@ -49,28 +49,47 @@ class Validator:
     def checks_for(self, subject):
         return [check for check in self.checks if check.applies_to(self.host.name, subject)]
 
+    # Checks are identified by their class name, in config and in reports.
+
+    def is_enabled(self, check_class):
+        return self.config.for_check(check_class.__name__).get("enabled", check_class.enabled)
+
+    def plan(self, subject):
+        """The checks that would run for this subject, leaving out any the studio disabled.
+
+        UIs use this to list the checks before anything has run.
+        """
+        return [check for check in self.checks_for(subject) if self.is_enabled(check)]
+
     def run(self, subject=None, fix=False, only=None):
         """Run every check that applies to the subject (by default, the selected asset).
 
         fix: also apply automatic fixes.
-        only: a list of check names; any others are skipped.
+        only: a list of check names to run; any others are skipped.
         """
         if subject is None:
             subject = self.resolve()
         ctx = Context(subject, self.host)
-
-        results = []
-        for check_class in self.checks_for(subject):
-            # Checks are identified by their class name, in config and in reports.
-            name = check_class.__name__
-            options = self.config.for_check(name)
-            enabled = options.get("enabled", check_class.enabled)
-            if not enabled or (only and name not in only):
-                results.append(make_result(check_class, SKIPPED))
-            else:
-                results.append(run_check(check_class, ctx, options, fix))
-
+        results = [self.check_result(check, ctx, fix, only) for check in self.checks_for(subject)]
         return Report(subject.name, self.host.name, results, self.load_errors, fix)
+
+    def run_one(self, check_name, subject=None, fix=False):
+        """Run a single check and return its CheckResult, e.g. to fix just that check."""
+        if subject is None:
+            subject = self.resolve()
+        for check_class in self.checks_for(subject):
+            if check_class.__name__ == check_name:
+                return self.check_result(check_class, Context(subject, self.host), fix)
+        raise KeyError(f"No check called {check_name} applies to {subject.name}")
+
+    def check_result(self, check_class, ctx, fix=False, only=None):
+        """Run one check, or skip it if config or `only` says so."""
+        if not self.is_enabled(check_class):
+            return make_result(check_class, SKIPPED, skip_reason="disabled in config")
+        if only is not None and check_class.__name__ not in only:
+            return make_result(check_class, SKIPPED, skip_reason="not selected")
+        options = self.config.for_check(check_class.__name__)
+        return run_check(check_class, ctx, options, fix)
 
     def run_all(self, fix=False, only=None):
         """Validate every asset in the scene, for batch and farm use."""
@@ -151,7 +170,7 @@ def get_status(issues, fixed):
     return PASSED
 
 
-def make_result(check_class, status, issues=(), fixed=(), error=""):
+def make_result(check_class, status, issues=(), fixed=(), error="", skip_reason=""):
     return CheckResult(
         check_id=check_class.__name__,
         label=check_class.label,
@@ -161,6 +180,8 @@ def make_result(check_class, status, issues=(), fixed=(), error=""):
         issues=list(issues),
         fixed_issues=list(fixed),
         error=error,
+        can_fix=check_class.can_fix(),
+        skip_reason=skip_reason,
     )
 
 

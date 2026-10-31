@@ -143,12 +143,18 @@ class StrictUnitScale(UnitScale):
 check_paths = ["checks"]          # relative to this file
 
 [checks.UnitScale]
-severity = "warning"
 settings = { tolerance = 0.0001 }
 
+[checks.UnappliedModifiers]
+severity = "warning"              # report it, but don't block publishing
+
 [checks.RootNotEmpty]
-enabled = false
+enabled = false                   # don't run it at all
 ```
+
+In the Blender panel, artists can untick checks while they work; unticked checks
+are reported as skipped. That's only a convenience in the panel: a headless publish
+(the command line or a publish hook) always runs every enabled check.
 
 Point `PUBLISH_VALIDATOR_CONFIG` at one or more of these files. Later files
 win, so list the studio file first and project files after it:

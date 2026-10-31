@@ -6,6 +6,7 @@ custom properties (see PropertyResolver).
 
 import bmesh
 import bpy
+import numpy
 from mathutils import Matrix
 
 from ...core.host import Host
@@ -71,6 +72,26 @@ class BlenderHost(Host):
     def meshes(self, root):
         """The root and everything below it that is a mesh."""
         return [obj for obj in [root, *root.children_recursive] if obj.type == "MESH"]
+
+    def fingerprint(self, root):
+        """A cheap summary of the asset, to tell whether it changed since validating.
+
+        Covers object names, types, parents, transforms, modifiers and mesh vertex
+        positions. Selection is left out, so selecting things never changes it.
+        """
+        parts = []
+        for obj in [root, *root.children_recursive]:
+            parent = obj.parent.name if obj.parent else ""
+            matrix = tuple(round(value, 5) for row in obj.matrix_world for value in row)
+            modifiers = tuple((m.type, m.show_viewport) for m in getattr(obj, "modifiers", ()))
+            geometry = ()
+            if obj.type == "MESH":
+                mesh = obj.data
+                coords = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float32)
+                mesh.vertices.foreach_get("co", coords)
+                geometry = (len(mesh.vertices), len(mesh.polygons), round(float(coords.sum()), 4))
+            parts.append((obj.name, obj.type, parent, matrix, modifiers, geometry))
+        return hash(tuple(parts))
 
     def apply_scale(self, objects):
         """Bake the scale into the mesh, like Object > Apply > Scale.

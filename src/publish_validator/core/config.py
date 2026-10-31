@@ -25,7 +25,7 @@ class Config:
     def __init__(self):
         self.check_paths = []  # extra folders to load checks from
         self.resolver = None  # "module:Class" of a custom resolver
-        self.checks = {}  # check name -> {"enabled": .., "severity": .., "settings": {..}}
+        self.checks = {}  # check name -> {"enabled", "severity", "settings": {..}}
         self.sources = {}  # check name -> the files that mention it, for error messages
 
     def read(self, path):
