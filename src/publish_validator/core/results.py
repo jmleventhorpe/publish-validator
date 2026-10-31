@@ -152,7 +152,7 @@ class Report:
             lines.append("")
 
         for error in self.load_errors:
-            lines.append(f"Could not load {error.source}: {error.short_message}")
+            lines.append(f"Problem in {error.source}: {error.short_message}")
 
         lines.append(f"{'PASSED' if self.passed else 'BLOCKED'}: {self.summary()}")
         return "\n".join(lines)

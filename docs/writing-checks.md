@@ -99,8 +99,13 @@ class UnitScale(Check):
         ...
 ```
 
-A studio can change them in config without editing the check. A misspelled
-setting name in config is reported as an error, not ignored.
+A studio can change them in config without editing the check. Config is checked
+when the checks load, so a misspelled check or setting name, or a value of the
+wrong type (`tolerance = "0.01"` for a number), is reported as an error, not
+ignored. The type is taken from the default, so give every setting a sensible
+one; a default of `None` accepts anything.
+
+A check that inherits from another keeps its parent's settings and adds its own.
 
 ## Fixes
 

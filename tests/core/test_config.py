@@ -30,8 +30,13 @@ def test_later_files_win(tmp_path, monkeypatch):
     project.write_text("[checks.A]\nenabled = false\nsettings = { y = 3 }\n")
     monkeypatch.setenv(CONFIG_ENV, str(studio))
 
-    options = load_config([project]).for_check("A")
-    assert options == {"severity": "error", "enabled": False, "settings": {"x": 1, "y": 3}}
+    config = load_config([project])
+    assert config.for_check("A") == {
+        "severity": "error",
+        "enabled": False,
+        "settings": {"x": 1, "y": 3},
+    }
+    assert config.sources["A"] == [str(studio), str(project)]
 
 
 @pytest.mark.parametrize(

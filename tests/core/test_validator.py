@@ -9,6 +9,7 @@ from publish_validator import (
     Config,
     Validator,
 )
+from publish_validator.core.validator import config_errors
 from publish_validator.testing import FakeHost, FakeNode
 
 
@@ -150,3 +151,34 @@ def test_select():
 def test_summary_order_is_always_the_same():
     report = run(Warns, Scale, Crashes)
     assert report.summary() == "1 warning, 1 failed, 1 errored"
+
+
+class Tolerant(Check):
+    settings = {"tolerance": 0.1}
+
+    def validate(self, ctx):
+        return []
+
+
+def test_config_mistakes_are_reported_before_anything_runs(tmp_path):
+    # A Maya check isn't loaded outside Maya, but config may still mention it.
+    maya = tmp_path / "maya"
+    maya.mkdir()
+    (maya / "rigs.py").write_text("class MayaOnly:\n    pass\n")
+
+    config = Config()
+    config.checks = {
+        "Tolerant": {"enabled": False, "settings": {"tolerence": 1, "tolerance": "high"}},
+        "Tolerent": {"settings": {}},
+        "MayaOnly": {"settings": {}},
+    }
+    config.sources = {"Tolerent": ["project.toml"]}
+    errors = config_errors(config, [Tolerant], [tmp_path])
+
+    messages = [error.message for error in errors]
+    assert len(messages) == 3
+    # Reported even though the check is disabled.
+    assert "Unknown setting(s) for Tolerant: tolerence" in messages[0]
+    assert "tolerance must be a number like 0.1, not 'high'" in messages[1]
+    assert messages[2] == "[checks.Tolerent] doesn't match any check. Check the spelling."
+    assert errors[2].source == "project.toml"

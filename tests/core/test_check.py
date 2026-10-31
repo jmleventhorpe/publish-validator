@@ -48,6 +48,40 @@ def test_unknown_setting_is_an_error():
         UVNaming({"tolernce": 1})
 
 
+@pytest.mark.parametrize(
+    ("settings", "message"),
+    [
+        ({"tolerance": "0.1"}, "tolerance must be a number"),
+        ({"names": "map1"}, "names must be a list"),
+        ({"limit": 1.5}, "limit must be a whole number"),
+        ({"limit": True}, "limit must be a whole number"),
+    ],
+)
+def test_wrong_type_of_setting_is_an_error(settings, message):
+    class Typed(UVNaming, TooManyChildren):
+        pass
+
+    with pytest.raises(ValueError, match=message):
+        Typed(settings)
+
+
+def test_whole_number_is_fine_for_a_decimal_setting():
+    assert UVNaming({"tolerance": 1}).settings["tolerance"] == 1
+
+
+def test_subclass_settings_add_to_the_parents():
+    class StrictUVNaming(UVNaming):
+        settings = {"tolerance": 0.1, "strict": True}
+
+    assert StrictUVNaming.settings == {"names": ["map1"], "tolerance": 0.1, "strict": True}
+    assert UVNaming.settings == {"names": ["map1"], "tolerance": 0.5}
+
+
+def test_changing_a_list_setting_does_not_change_the_default():
+    UVNaming().settings["names"].append("map2")
+    assert UVNaming.settings["names"] == ["map1"]
+
+
 def test_applies_to():
     prop_model = Subject("chair", "prop", "model", root=None)
     prop_rig = Subject("chair", "prop", "rig", root=None)
@@ -63,17 +97,12 @@ def test_run_and_fix():
     assert len(root.children) == 1
 
 
-def test_a_single_name_can_be_written_as_a_string():
-    class StringTasks(Check):
-        hosts = "blender"
-        tasks = "model"
+def test_a_string_instead_of_a_list_is_rejected():
+    # A string would let "mod" match "model".
+    with pytest.raises(TypeError, match=r"tasks = \['model'\]"):
 
-        def validate(self, ctx):
-            return []
+        class StringTasks(Check):
+            tasks = "model"
 
-    assert StringTasks.hosts == ["blender"]
-    assert StringTasks.applies_to("blender", Subject("x", None, "model", root=None))
-    # Used to crash with a TypeError when the asset had no task.
-    assert not StringTasks.applies_to("blender", Subject("x", None, None, root=None))
-    # And "mod" used to count as matching "model".
-    assert not StringTasks.applies_to("blender", Subject("x", None, "mod", root=None))
+            def validate(self, ctx):
+                return []

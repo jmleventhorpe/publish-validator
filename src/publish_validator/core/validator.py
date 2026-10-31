@@ -11,7 +11,7 @@ import traceback
 
 from .check import Context
 from .config import ConfigError, load_config
-from .loader import load_checks
+from .loader import class_names_on_disk, load_checks
 from .results import (
     ERROR,
     ERRORED,
@@ -22,6 +22,7 @@ from .results import (
     WARNING,
     CheckResult,
     Issue,
+    LoadError,
     Report,
 )
 from .subject import PropertyResolver
@@ -39,6 +40,7 @@ class Validator:
         """Load every check file again, so edited checks work without a restart."""
         folders = self.config.check_paths + self.extra_check_paths
         self.checks, self.load_errors = load_checks(folders, self.host.name)
+        self.load_errors += config_errors(self.config, self.checks, folders)
 
     def resolve(self, node=None):
         """The asset for a node, or for the selection. Raises ResolveError."""
@@ -77,6 +79,30 @@ class Validator:
 
     def select(self, targets):
         self.host.select(targets)
+
+
+def config_errors(config, checks, folders=()):
+    """Mistakes in the config's [checks] tables, found before anything runs.
+
+    Without this, a misspelled check name would be ignored, and a bad setting
+    would only show up when that check ran.
+    """
+    errors = []
+    by_name = {check.__name__: check for check in checks}
+    on_disk = None  # only read the check files if a name isn't loaded
+    for name, options in config.checks.items():
+        source = ", ".join(config.sources.get(name, [])) or "config"
+        check = by_name.get(name)
+        if check is None:
+            if on_disk is None:
+                on_disk = class_names_on_disk(folders)
+            if name not in on_disk:
+                message = f"[checks.{name}] doesn't match any check. Check the spelling."
+                errors.append(LoadError(source, message))
+            continue
+        for problem in check.settings_problems(options.get("settings", {})):
+            errors.append(LoadError(source, problem))
+    return errors
 
 
 def run_check(check_class, ctx, options=None, fix=False):

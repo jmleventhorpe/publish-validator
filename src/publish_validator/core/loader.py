@@ -5,6 +5,7 @@ the built-in checks that ship with this package, the check_paths from config,
 and the folders listed in the PUBLISH_VALIDATOR_PATH environment variable.
 """
 
+import ast
 import importlib.util
 import os
 import sys
@@ -33,20 +34,10 @@ def load_checks(folders=(), host_name=None):
 
     host_name skips folders meant for other applications. None loads everything.
     """
-    env_folders = os.environ.get(CHECK_PATH_ENV, "").split(os.pathsep)
-    all_folders = [BUILTIN_CHECKS, *folders, *env_folders]
-
     checks = {}
     errors = []
-    seen_folders = []
     forget_helper_modules()
-    for folder in all_folders:
-        if not folder:
-            continue
-        folder = Path(folder).expanduser().resolve()
-        if folder in seen_folders:
-            continue
-        seen_folders.append(folder)
+    for folder in check_folders(folders):
         if not folder.is_dir():
             errors.append(LoadError(str(folder), "Check folder does not exist"))
             continue
@@ -69,6 +60,37 @@ def load_checks(folders=(), host_name=None):
                     checks[name] = check
 
     return list(checks.values()), errors
+
+
+def check_folders(folders=()):
+    """Every folder to search, in order and without duplicates."""
+    env_folders = os.environ.get(CHECK_PATH_ENV, "").split(os.pathsep)
+    found = []
+    for folder in [BUILTIN_CHECKS, *folders, *env_folders]:
+        if folder:
+            folder = Path(folder).expanduser().resolve()
+            if folder not in found:
+                found.append(folder)
+    return found
+
+
+def class_names_on_disk(folders=()):
+    """The names of every class in every check file, for every application.
+
+    The files are read, not run, so this also finds checks for other applications
+    (a Maya check while in Blender), which config is allowed to mention.
+    """
+    names = set()
+    for folder in check_folders(folders):
+        if not folder.is_dir():
+            continue
+        for path in find_check_files(folder):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError, UnicodeDecodeError):
+                continue  # load_checks reports broken files
+            names.update(node.name for node in tree.body if isinstance(node, ast.ClassDef))
+    return names
 
 
 def find_check_files(folder, host_name=None):

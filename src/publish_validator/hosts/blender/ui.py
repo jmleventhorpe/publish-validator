@@ -206,7 +206,7 @@ class PV_PT_panel(bpy.types.Panel):
         if report.load_errors:
             box = layout.box()
             box.alert = True
-            box.label(text=f"{len(report.load_errors)} file(s) could not load:", icon="ERROR")
+            box.label(text=f"{len(report.load_errors)} loading problem(s):", icon="ERROR")
             for error in report.load_errors[:5]:
                 box.label(text=f"{error.source}: {error.short_message}")
 
