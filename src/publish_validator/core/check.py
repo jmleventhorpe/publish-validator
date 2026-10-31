@@ -81,7 +81,9 @@ class Check:
 
     @classmethod
     def can_fix(cls):
-        return cls.fix is not Check.fix
+        # True if this check wrote its own fix(), rather than inheriting the empty one
+        # above. fix = None in a subclass turns off a fix it would otherwise inherit.
+        return cls.fix is not None and cls.fix is not Check.fix
 
     @classmethod
     def applies_to(cls, host_name, subject):

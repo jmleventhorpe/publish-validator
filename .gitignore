@@ -10,3 +10,6 @@ build/
 dist/
 *.egg-info/
 blender_extension/wheels/
+
+# Personal Claude Code settings for this repo
+.claude/settings.local.json

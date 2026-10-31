@@ -37,6 +37,17 @@ def test_defaults():
     assert TooManyChildren.can_fix()
 
 
+def test_a_subclass_can_turn_off_an_inherited_fix():
+    class ReportOnly(TooManyChildren):
+        fix = None
+
+    assert not ReportOnly.can_fix()
+    # Fix mode just reports the issue instead of crashing.
+    root = FakeNode("root", FakeNode("a"), FakeNode("b"))
+    assert run_check_on(ReportOnly, root, fix=True).status == FAILED
+    assert len(root.children) == 2
+
+
 def test_settings_override_without_changing_the_class():
     check = UVNaming({"tolerance": 2})
     assert check.settings == {"names": ["map1"], "tolerance": 2}

@@ -129,6 +129,13 @@ To pass extra information from `validate` to `fix`, add keyword arguments:
 `self.issue("Wrong UV set", mesh, expected="map1")` puts it in
 `issue.data["expected"]`.
 
+A check that inherits a fix it shouldn't use can switch it off with `fix = None`:
+
+```python
+class StrictUnitScale(UnitScale):
+    fix = None    # report only, never fix automatically
+```
+
 ## Config
 
 ```toml
