@@ -6,11 +6,11 @@ Runs straight from this repo's source, so nothing is installed into your
 Blender preferences. The demo chair follows the standard layout and naming, with
 a few deliberate problems:
 
-    UnitScale            seat_GEO is scaled                  (can be fixed)
+    UnitScale            seat is scaled                  (can be fixed)
     AllowedObjectTypes   a camera inside the asset
     NamingConvention     backLeg.001 has Blender's number ending
-    Ngons                cushion_GEO has ngon caps
-    UnappliedModifiers   a Mirror modifier on backrest_GEO   (warning only)
+    Ngons                cushion has ngon caps
+    UnappliedModifiers   a Mirror modifier on backrest   (warning only)
 
 The sidebar opens with the chair selected: click its Validate tab.
 """
@@ -68,24 +68,24 @@ def build_chair():
     add_empty("simproxy", root)
 
     # UnitScale fails here; the Fix button bakes the scale into the mesh.
-    seat = add_cube("seat_GEO", render, offset=(0, 0, 0.5), size=(1, 1, 1))
+    seat = add_cube("seat", render, offset=(0, 0, 0.5), size=(1, 1, 1))
     seat.scale = (1, 1, 0.1)
 
     for name, x, y in [
-        ("L_frontLeg_GEO", 0.4, 0.4),
-        ("R_frontLeg_GEO", -0.4, 0.4),
+        ("L_frontLeg", 0.4, 0.4),
+        ("R_frontLeg", -0.4, 0.4),
         ("backLeg.001", 0, -0.4),
     ]:
         add_cube(name, render, offset=(x, y, 0.25), size=(0.08, 0.08, 0.5))
 
-    backrest = add_cube("backrest_GEO", render, offset=(0, -0.45, 0.9), size=(1, 0.08, 0.7))
+    backrest = add_cube("backrest", render, offset=(0, -0.45, 0.9), size=(1, 0.08, 0.7))
     backrest.modifiers.new("Mirror", "MIRROR")  # the studio config allows Bevel, not Mirror
 
     # A cylinder with single-face caps: two ngons.
     bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.3, depth=0.05, end_fill_type="NGON")
-    finish_mesh("cushion_GEO", render, offset=(0, 0, 0.58), size=(1, 1, 1))
+    finish_mesh("cushion", render, offset=(0, 0, 0.58), size=(1, 1, 1))
 
-    add_cube("seat_PROXY", proxy, offset=(0, 0, 0.45), size=(1, 1, 0.9))
+    add_cube("seat_proxy", proxy, offset=(0, 0, 0.45), size=(1, 1, 0.9))
 
     camera = bpy.data.objects.new("TurntableCam", bpy.data.cameras.new("TurntableCam"))
     bpy.context.scene.collection.objects.link(camera)

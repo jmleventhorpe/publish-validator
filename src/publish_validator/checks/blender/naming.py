@@ -6,21 +6,20 @@ from publish_validator import Check
 class NamingConvention(Check):
     """Objects must follow the naming convention.
 
-    Render geometry: seat_GEO, L_frontLeg_GEO (side prefix optional).
-    Proxy geometry, under the proxy group: seat_PROXY.
-    Other groups: legs_GRP. The geo, render, proxy and simproxy groups keep
-    their plain names. Use letters and digits only: no spaces, dots or dashes,
-    and no Blender ".001" endings (number with leg001 instead). These names
-    survive the export to USD unchanged.
+    Geometry and groups: seat, L_frontLeg, legs (side prefix optional).
+    Proxy geometry, under the proxy group: seat_proxy.
+    Use letters and digits only: no spaces, dots or dashes, and no Blender
+    ".001" endings (number with leg001 instead). These names survive the
+    export to USD unchanged.
     """
 
     category = "Naming"
     hosts = ["blender"]
     tasks = ["model"]
     settings = {
-        "geo_suffix": "GEO",
-        "proxy_suffix": "PROXY",
-        "group_suffix": "GRP",
+        "geo_suffix": "",  # empty: render geometry has no suffix
+        "proxy_suffix": "proxy",
+        "group_suffix": "",  # empty: groups have no suffix
         "sides": ["L", "R", "C"],
         "group_names": ["geo", "render", "proxy", "simproxy", "utils", "temp"],
     }
@@ -28,6 +27,7 @@ class NamingConvention(Check):
     def validate(self, ctx):
         sides = "|".join(re.escape(side) for side in self.settings["sides"])
         word = "[a-z][a-zA-Z0-9]*"
+        proxy_ending = "_" + self.settings["proxy_suffix"]
 
         for obj in ctx.host.descendants(ctx.root):
             name = obj.name
@@ -37,16 +37,19 @@ class NamingConvention(Check):
                 suffix = self.settings["group_suffix"]
             elif obj.type == "MESH":
                 in_proxy = any(parent.name == "proxy" for parent in parents(obj))
+                if not in_proxy and name.endswith(proxy_ending):
+                    yield self.issue(f"{name} is named as a proxy but isn't under 'proxy'", obj)
+                    continue
                 suffix = self.settings["proxy_suffix" if in_proxy else "geo_suffix"]
             else:
                 continue  # other object types are Allowed Object Types' business
 
-            pattern = rf"^(?:(?:{sides})_)?{word}(?:_{word})*_{re.escape(suffix)}$"
-            if re.match(pattern, name):
+            ending = f"_{re.escape(suffix)}" if suffix else ""
+            if re.match(rf"^(?:(?:{sides})_)?{word}(?:_{word})*{ending}$", name):
                 continue
             if re.search(r"\.\d+$", name):
                 reason = "has Blender's automatic number ending"
-            elif not name.endswith("_" + suffix):
+            elif suffix and not name.endswith("_" + suffix):
                 reason = f"should end in _{suffix}"
             else:
                 reason = "should use letters and digits, starting lower case, e.g. frontLeg"

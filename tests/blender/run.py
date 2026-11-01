@@ -97,8 +97,8 @@ def test_finds_the_blender_host():
 
 def test_a_clean_asset_passes_every_check():
     asset = make_asset()
-    add_cube("seat_GEO", asset.render)
-    add_cube("seat_PROXY", asset.proxy)
+    add_cube("seat", asset.render)
+    add_cube("seat_proxy", asset.proxy)
     select_only(asset.root)
     report = Validator(BlenderHost()).run()
     print(report.as_text())
@@ -109,43 +109,44 @@ def test_a_clean_asset_passes_every_check():
 def test_each_check_finds_its_problem():
     asset = make_asset()
     render = asset.render
-    add_cube("good_GEO", render)
+    add_cube("good", render)
     add_cube("bad.001", render)
-    add_cube("wrong_GEO", asset.proxy)  # proxies end in _PROXY
+    add_cube("wrong", asset.proxy)  # proxies end in _proxy
+    add_cube("stray_proxy", render)  # a proxy outside the proxy group
     add_empty("junk", asset.root)
 
-    renamed = add_cube("renamed_GEO", render)
+    renamed = add_cube("renamed", render)
     renamed.data.name = "Cube"
 
-    parent = add_cube("parent_GEO", render)
-    add_cube("child_GEO", parent)
+    parent = add_cube("parent", render)
+    add_cube("child", parent)
 
-    moved = add_cube("moved_GEO", render)
+    moved = add_cube("moved", render)
     moved.location = (1, 0, 0)
 
-    animated = add_cube("animated_GEO", render)
+    animated = add_cube("animated", render)
     animated.keyframe_insert("location", frame=1)
 
     bpy.ops.mesh.primitive_cylinder_add(vertices=8, end_fill_type="NGON")
-    bpy.context.active_object.name = "ngon_GEO"
-    bpy.context.active_object.data.name = "ngon_GEO"
+    bpy.context.active_object.name = "ngon"
+    bpy.context.active_object.data.name = "ngon"
     bpy.context.active_object.parent = render
 
-    add_mesh("flat_GEO", render, [(0, 0, 0), (1, 0, 0), (2, 0, 0)], [(0, 1, 2)])
+    add_mesh("flat", render, [(0, 0, 0), (1, 0, 0), (2, 0, 0)], [(0, 1, 2)])
     add_mesh(
-        "stacked_GEO",
+        "stacked",
         render,
         [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
         [(0, 1, 2, 3), (0, 1, 2, 3)],
     )
     add_mesh(
-        "doubled_GEO",
+        "doubled",
         render,
         [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 0), (1, 0, 0), (0, -1, 0)],
         [(0, 1, 2), (3, 5, 4)],
     )
     add_mesh(
-        "fin_GEO",
+        "fin",
         render,
         [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1)],
         [(0, 1, 2), (0, 1, 3), (0, 1, 4)],
@@ -158,19 +159,19 @@ def test_each_check_finds_its_problem():
     assert "'junk' shouldn't be directly under the asset root" in messages(report, "GroupSetup")
     naming = messages(report, "NamingConvention")
     assert "bad.001 has Blender's automatic number ending" in naming
-    assert "wrong_GEO should end in _PROXY" in naming
-    assert "junk should end in _GRP" in naming
-    assert messages(report, "MeshDataNames") == ["renamed_GEO uses mesh data called Cube"]
-    assert messages(report, "GeoChildren") == ["parent_GEO has meshes under it: child_GEO"]
-    assert messages(report, "ZeroTransforms") == ["moved_GEO is moved 1, 0, 0"]
-    assert messages(report, "HasAnimation") == ["animated_GEO has keyframes"]
-    assert messages(report, "Ngons") == ["ngon_GEO has 2 ngons"]
-    assert messages(report, "ZeroAreaFaces") == ["flat_GEO has 1 faces with no area"]
-    assert messages(report, "LaminaFaces") == ["stacked_GEO has 1 pairs of lamina faces"]
-    assert messages(report, "DoubleVerts") == ["doubled_GEO has 4 overlapping vertices"]  # 2 pairs
-    assert messages(report, "NonManifold") == ["fin_GEO has 1 non-manifold edges"]
+    assert "wrong should end in _proxy" in naming
+    assert "stray_proxy is named as a proxy but isn't under 'proxy'" in naming
+    assert messages(report, "MeshDataNames") == ["renamed uses mesh data called Cube"]
+    assert messages(report, "GeoChildren") == ["parent has meshes under it: child"]
+    assert messages(report, "ZeroTransforms") == ["moved is moved 1, 0, 0"]
+    assert messages(report, "HasAnimation") == ["animated has keyframes"]
+    assert messages(report, "Ngons") == ["ngon has 2 ngons"]
+    assert messages(report, "ZeroAreaFaces") == ["flat has 1 faces with no area"]
+    assert messages(report, "LaminaFaces") == ["stacked has 1 pairs of lamina faces"]
+    assert messages(report, "DoubleVerts") == ["doubled has 4 overlapping vertices"]  # 2 pairs
+    assert messages(report, "NonManifold") == ["fin has 1 non-manifold edges"]
     assert report.get("MeshHoles").status == WARNING
-    assert any(m.startswith("flat_GEO has") for m in messages(report, "MeshHoles"))
+    assert any(m.startswith("flat has") for m in messages(report, "MeshHoles"))
 
     # Geometry problems point at the exact elements.
     ngons = report.get("Ngons").issues[0].targets[0]
@@ -179,9 +180,9 @@ def test_each_check_finds_its_problem():
 
 def test_validate_and_fix_scale():
     asset = make_asset()
-    seat = add_cube("seat_GEO", asset.render, scale=(2, 1, 1), offset=(0, 0, 3))
-    legs = add_empty("legs_GRP", seat)
-    leg = add_cube("leg_GEO", legs, offset=(5, 0, 0))
+    seat = add_cube("seat", asset.render, scale=(2, 1, 1), offset=(0, 0, 3))
+    legs = add_empty("legs", seat)
+    leg = add_cube("leg", legs, offset=(5, 0, 0))
     bpy.context.view_layer.update()
     leg_points = [leg.matrix_world @ vertex.co for vertex in leg.data.vertices]
     seat_points = [seat.matrix_world @ vertex.co for vertex in seat.data.vertices]
@@ -193,7 +194,7 @@ def test_validate_and_fix_scale():
     assert report.subject_name == "chair"
     unit_scale = report.get("UnitScale")
     assert unit_scale.status == FAILED
-    assert unit_scale.issues[0].target_names == ["seat_GEO"]
+    assert unit_scale.issues[0].target_names == ["seat"]
 
     validator.select(unit_scale.targets)
     assert BlenderHost().selection() == [seat]
@@ -214,7 +215,7 @@ def test_validate_and_fix_scale():
 
 def test_checks_are_picked_by_task():
     asset = make_asset(task="lookdev")
-    add_cube("body_GEO", asset.render, scale=(3, 3, 3))
+    add_cube("body", asset.render, scale=(3, 3, 3))
     add_lamp(asset.render)
     select_only(asset.root)
 
@@ -229,7 +230,7 @@ def test_checks_are_picked_by_task():
 
 def test_selecting_faces():
     asset = make_asset()
-    cube = add_cube("cube_GEO", asset.render)
+    cube = add_cube("cube", asset.render)
     BlenderHost().select([Component(cube, "face", [0, 2])])
     assert bpy.context.mode == "EDIT_MESH"
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -240,7 +241,7 @@ def test_panel_buttons():
     register()
     try:
         asset = make_asset()
-        add_cube("seat_GEO", asset.render, scale=(2, 2, 2))
+        add_cube("seat", asset.render, scale=(2, 2, 2))
         select_only(asset.root)
         assert bpy.ops.publish_validator.validate() == {"FINISHED"}
         assert state.report.get("UnitScale").status == FAILED
@@ -258,7 +259,7 @@ def test_panel_checkboxes_fix_one_and_stale():
     register()
     try:
         asset = make_asset()
-        seat = add_cube("seat_GEO", asset.render, scale=(2, 2, 2))
+        seat = add_cube("seat", asset.render, scale=(2, 2, 2))
         lamp = add_lamp(asset.render)
         select_only(asset.root)
 
@@ -309,7 +310,7 @@ def test_panel_checkboxes_fix_one_and_stale():
 
 def test_command_line():
     asset = make_asset("table")
-    add_cube("top_GEO", asset.render, scale=(1, 1, 0.1))
+    add_cube("top", asset.render, scale=(1, 1, 0.1))
     select_only()
     assert cli_main(["--root", "table_root"]) == 1
     assert cli_main(["--all", "--fix"]) == 0
@@ -319,7 +320,7 @@ def test_command_line():
 
 def test_studio_check_folder():
     asset = make_asset()
-    add_cube("seat_GEO", asset.render)
+    add_cube("seat", asset.render)
     select_only(asset.root)
     validator = Validator(BlenderHost(), check_paths=[REPO / "examples" / "studio_checks"])
     report = validator.run()

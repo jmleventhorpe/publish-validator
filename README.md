@@ -68,7 +68,7 @@ None of the checks below fix anything automatically, except Unit Scale.
 | Group Setup | Structure | The standard layout: root > `geo` (> `render`, `proxy`) and `simproxy` |
 | Allowed Object Types | Structure | Cameras, lights and other non-mesh, non-empty objects |
 | Geo Children | Structure | Meshes parented under other meshes |
-| Naming Convention | Naming | `seat_GEO`, `L_frontLeg_GEO`, `seat_PROXY` under proxy, `legs_GRP`; no `.001` endings |
+| Naming Convention | Naming | `seat`, `L_frontLeg`, `legs`, and `seat_proxy` under proxy; no `.001` endings |
 | Mesh Data Names | Naming | Mesh data named differently from its object |
 | Unit Scale | Transforms | Mesh objects with a scale other than 1 (can fix) |
 | Zero Transforms | Transforms | Objects whose origin isn't at the world centre, or that are rotated |
