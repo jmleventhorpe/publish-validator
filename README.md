@@ -1,9 +1,8 @@
 # Publish Validator
 
-**Catch broken assets before they're published.** Publish Validator checks a 3D
-asset against your studio's rules (structure, naming, transforms, geometry),
-shows what's wrong in a native Blender panel, and fixes what it safely can. The
-same checks run headless as a publish gate.
+Publish Validator checks a 3D asset against your studio's rules (structure,
+naming, transforms, geometry), shows what's wrong in a native Blender panel, and
+fixes what it safely can. The same checks run headless as a publish gate.
 
 [![Release](https://img.shields.io/github/v/release/jmleventhorpe/publish-validator)](https://github.com/jmleventhorpe/publish-validator/releases)
 [![Blender 4.2+](https://img.shields.io/badge/Blender-4.2%2B-E87D0D?logo=blender&logoColor=white)](https://www.blender.org)
