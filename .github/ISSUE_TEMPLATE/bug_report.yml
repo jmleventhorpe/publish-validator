@@ -1,0 +1,28 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: A small scene or script that shows the problem helps a lot.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: "Publish Validator 0.1.0, Blender 5.2, Ubuntu 24.04"
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Errors or console output
+      render: text

@@ -1,123 +1,80 @@
 # Architecture
 
-How the pieces of Publish Validator connect: what happens once when the
-validator starts, what happens on every Validate click, and which code is
-allowed to talk to Blender, Maya or Houdini.
+How the pieces of Publish Validator fit together. For the reasoning behind
+them, see [design.md](design.md).
 
-## Starting up: config and checks
-
-Creating a `Validator` reads the studio config and loads every check file once.
-Anything that goes wrong here is collected as a loading problem, not raised, so
-one bad file never stops the others.
+## What happens when you press Validate
 
 ```mermaid
 flowchart LR
-    files["Config files (TOML)<br/>studio.toml, project.toml"]
-    folders["Check folders<br/>checks/ (built in)<br/>check_paths<br/>PUBLISH_VALIDATOR_PATH"]
-    config["load_config()<br/>core/config.py"]
-    loader["load_checks()<br/>core/loader.py"]
-    validator["Validator(host)<br/>core/validator.py"]
-    problems["Loading problems<br/>broken files, duplicate names,<br/>config mistakes"]
-
-    files -- "read in order, later wins" --> config
-    config -- "check_paths" --> loader
-    folders -- ".py files" --> loader
-    config -- "Config: resolver, check options" --> validator
-    loader -- "check classes + errors" --> validator
-    validator -- "load_errors" --> problems
+    selection["Selection"] --> resolver["Find the asset<br/>(resolver)"]
+    resolver --> checks["Pick the checks<br/>that apply"]
+    checks --> run["Run each check"]
+    run --> report["Report"]
+    report --> ui["Panel, text or JSON"]
 ```
 
-- The config decides where checks come from (`check_paths`) and how the asset
-  is found (`resolver`).
-- Loading problems are shown in the Blender panel and included in every report.
+1. **Find the asset.** The resolver walks up from whatever is selected to the
+   asset's root, and reads its name, type and task.
+2. **Pick the checks.** Only checks whose host, task and asset type match are
+   used, minus any the studio has disabled in config.
+3. **Run each check**, each in its own safety net. With Fix, a check repairs
+   what it can and then runs again.
+4. **Report.** Results are data, so the same report feeds the panel, the
+   command line's text output and JSON.
 
-## One click of Validate
-
-Every run follows the same four steps inside `Validator.run()`. The panel and
-the command line only start it and show what comes back.
-
-```mermaid
-sequenceDiagram
-    participant UI as Panel or CLI
-    participant V as Validator
-    participant R as PropertyResolver
-    participant C as Check
-    participant H as BlenderHost
-
-    UI->>V: run()
-    Note over V: 1. resolve()
-    V->>R: resolve(host)
-    R->>H: selection(), parent(), get_property()
-    R-->>V: Subject
-    Note over V: 2. checks_for(subject)
-    V->>C: applies_to(host name, subject)
-    C-->>V: true or false
-    Note over V: 3. run_check() for each check that applies
-    loop each check
-        V->>C: validate(ctx)
-        C->>H: scene queries through ctx.host
-        C-->>V: Issues
-        opt Fix was pressed
-            V->>C: fix(ctx, issues)
-            V->>C: validate(ctx) again
-            C-->>V: Issues still left
-        end
-    end
-    Note over V: 4. build the Report
-    V-->>UI: Report
-```
-
-- **Each check runs inside its own safety net.** If a check crashes, it's
-  reported as `errored` and the loop carries on with the next one.
-- **Step 3 reads each check's config** (`enabled`, `severity`, `settings`)
-  before running it.
-- **After a fix, the check runs again**, so the report shows what is really
-  left rather than assuming the fix worked.
+When the `Validator` is first created, it reads the config files and loads
+every check file once. Anything that fails to load is listed as a loading
+problem, not raised.
 
 ## Who may talk to the application
 
-The core never imports `bpy`, `maya` or `hou`. Applications plug in underneath
-it by subclassing `Host`, and checks plug in on top by subclassing `Check`.
-
 ```mermaid
 flowchart TB
-    subgraph checks["Check files"]
-        blenderChecks["checks/blender/<br/>UnitScale, AllowedObjectTypes"]
-        genericChecks["checks/generic/<br/>RootNotEmpty"]
-        studioChecks["Studio folders<br/>check_paths, PUBLISH_VALIDATOR_PATH"]
-    end
-
-    subgraph core["core/ - pure Python, no bpy, maya or hou"]
-        coreFiles["check.py, validator.py, loader.py, config.py<br/>subject.py, host.py, results.py"]
-    end
-
-    subgraph hosts["Host adapters"]
-        blenderHost["hosts/blender/<br/>BlenderHost and the panel<br/>tested in Blender 5.2"]
-        mayaHost["hosts/maya/<br/>MayaHost<br/>not yet tested in Maya"]
-        houdiniHost["hosts/houdini/<br/>HoudiniHost<br/>not yet tested in Houdini"]
-    end
-
-    checks -- "subclass Check" --> core
-    hosts -- "subclass Host" --> core
-    blenderChecks -. "Blender helpers, e.g. meshes()" .-> blenderHost
+    checks["Check files<br/>built-in, studio folders"] --> core["core/<br/>pure Python"]
+    hosts["Host adapters<br/>Blender, Maya, Houdini"] --> core
 ```
 
-- A check limited to `hosts = ["blender"]` may use `BlenderHost` helpers such
-  as `meshes()`. A check with no `hosts` sticks to the generic `Host` methods,
-  so it runs in every application.
-- Supporting a new application means one new folder under `hosts/`.
+The core never imports `bpy`, `maya` or `hou`. Checks build on it by
+subclassing `Check`; applications plug in by subclassing `Host`. A check
+limited to Blender may also use Blender's own API and the Blender host's
+helpers, such as `meshes()`.
+
+## Extending it
+
+### Using your pipeline's asset data
+
+By default the asset is found from `pv_*` custom properties on its root. If
+your pipeline stores asset information somewhere else, write a resolver class
+with `resolve(host, node=None)`, which returns a `Subject` or raises
+`ResolveError` with a message for the artist, and `find_all(host)`. Then name
+it in config:
+
+```toml
+resolver = "my_pipeline.validator:PipelineResolver"
+```
+
+Subclassing `PropertyResolver` is the easiest start. For example, set
+`prefix = "studio_"` to read `studio_task` and so on.
+
+### Supporting another application
+
+Subclass `Host` and fill in `selection`, `select`, `find`, `parent`,
+`children`, `get_property` and `find_by_property`. Then add the application to
+`current_host()` in `hosts/__init__.py`.
 
 ## Which file does what
 
-| File | Job | Used by |
-|---|---|---|
-| `core/check.py` | `Check` base class (metadata, settings, `validate`, `fix`) and `Context` | Every check file, `run_check` |
-| `core/validator.py` | `Validator`: loads everything, runs checks, builds the report | Panel, command line, publish hooks |
-| `core/loader.py` | Finds and imports check files, applying the folder rules | `Validator.reload()` |
-| `core/config.py` | Reads and merges the TOML config files | `Validator` |
-| `core/subject.py` | `Subject` (the asset) and `PropertyResolver` | `Validator.resolve()` |
-| `core/host.py` | `Host` base class: the methods every application must provide | Each host adapter |
-| `core/results.py` | `Issue`, `CheckResult`, `Report`, with text and JSON output | Everything that shows results |
-| `hosts/blender/` | `BlenderHost` and the sidebar panel | Blender |
-| `cli.py` | Command line: `--root`, `--all`, `--fix`, `--json`, `--list` | Headless runs, the farm |
-| `testing.py` | `FakeNode`, `FakeHost`, `run_check_on` | Tests for checks, without an application |
+| File | Job |
+|---|---|
+| `core/check.py` | `Check`, the base class every check inherits from, and `Context`, what a check works with |
+| `core/validator.py` | `Validator`: loads everything, runs checks, builds the report |
+| `core/loader.py` | Finds and imports check files |
+| `core/config.py` | Reads and merges the TOML config files |
+| `core/subject.py` | Works out which asset is selected (`PropertyResolver`) |
+| `core/host.py` | `Host`, the base class for each application |
+| `core/results.py` | `Issue`, `CheckResult` and `Report`, with text and JSON output |
+| `hosts/blender/` | The Blender host and sidebar panel |
+| `checks/` | Built-in checks; `generic/` runs anywhere, `blender/` only in Blender |
+| `cli.py` | Command line for headless runs and publish hooks |
+| `testing.py` | `FakeNode` and `FakeHost`, for testing checks without an application |

@@ -1,0 +1,30 @@
+name: Check request
+description: Suggest a new built-in check
+labels: [check]
+body:
+  - type: textarea
+    id: rule
+    attributes:
+      label: What should the check look for?
+      placeholder: "Meshes with more than one UV map."
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why does it matter?
+      description: What goes wrong downstream when this isn't caught?
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Application
+      options: [Blender, Maya, Houdini, Any]
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Can it be fixed automatically?
+      description: Only if the fix is mechanical and keeps the model looking the same.

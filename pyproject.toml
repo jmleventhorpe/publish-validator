@@ -1,10 +1,25 @@
 [project]
 name = "publish-validator"
 version = "0.1.0"
-description = "Extensible publish sanity checker for Blender, Maya, Houdini and any host that runs Python."
+description = "Extensible pre-publish checks for 3D assets, with a native Blender panel."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "James Leventhorpe" }]
+keywords = ["blender", "vfx", "pipeline", "validation", "publish", "usd"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+
+[project.urls]
+Repository = "https://github.com/jmleventhorpe/publish-validator"
+Issues = "https://github.com/jmleventhorpe/publish-validator/issues"
 
 [project.scripts]
 publish-validator = "publish_validator.cli:main"

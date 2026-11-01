@@ -4,7 +4,8 @@ id = "publish_validator"
 version = "0.1.0"
 name = "Publish Validator"
 tagline = "Extensible sanity checks before publishing assets"
-maintainer = "Publish Validator contributors"
+maintainer = "James Leventhorpe"
+website = "https://github.com/jmleventhorpe/publish-validator"
 type = "add-on"
 tags = ["Pipeline", "Development"]
 
