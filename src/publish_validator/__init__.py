@@ -23,7 +23,7 @@ from .core.results import (
 from .core.subject import PropertyResolver, ResolveError, Subject
 from .core.validator import Validator
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ERROR",
