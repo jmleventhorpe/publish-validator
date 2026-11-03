@@ -40,7 +40,7 @@ class ZeroTransforms(Check):
 
     def validate(self, ctx):
         tolerance = self.settings["tolerance"]
-        for obj in [ctx.root, *ctx.host.descendants(ctx.root)]:
+        for obj in ctx.host.objects(ctx.root):
             location, rotation, _ = obj.matrix_world.decompose()
             problems = []
             if location.length > tolerance:
@@ -63,7 +63,7 @@ class HasAnimation(Check):
     tasks = ["model"]
 
     def validate(self, ctx):
-        for obj in [ctx.root, *ctx.host.descendants(ctx.root)]:
+        for obj in ctx.host.objects(ctx.root):
             animation = obj.animation_data
             if animation is None:
                 continue

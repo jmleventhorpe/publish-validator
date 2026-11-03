@@ -329,6 +329,68 @@ def test_studio_check_folder():
     assert report.get("PolyBudget").status == PASSED
 
 
+def make_collection_asset(name="lamp", task="model", asset_type="prop"):
+    """An asset whose root is a collection, as in collection-based pipelines."""
+    root = bpy.data.collections.new(name)
+    bpy.context.scene.collection.children.link(root)
+    root["pv_task"] = task
+    root["pv_asset_type"] = asset_type
+    root["pv_asset_name"] = name
+    return root
+
+
+def add_cube_to(collection, name, parent=None):
+    cube = add_cube(name, parent)
+    for user in list(cube.users_collection):
+        user.objects.unlink(cube)
+    collection.objects.link(cube)
+    return cube
+
+
+def test_a_collection_can_be_the_asset_root():
+    root = make_collection_asset()
+    base = add_cube_to(root, "base")
+    shade = add_cube_to(root, "shade", parent=base)
+    host = BlenderHost()
+
+    select_only(shade)  # Selecting something inside finds the collection.
+    validator = Validator(host)
+    subject = validator.resolve()
+    assert subject.root == root and subject.name == "lamp"
+
+    assert host.children(root) == [base]  # Only top-level objects; shade is under base.
+    assert set(host.descendants(root)) == {base, shade}
+    assert set(host.meshes(root)) == {base, shade}
+    assert host.parent(base) == root and host.parent(root) is None
+    assert root in host.find_by_property("pv_task")
+
+
+def test_checks_work_on_a_collection_root():
+    root = make_collection_asset()
+    add_cube_to(root, "base")
+    moved = add_cube_to(root, "moved")
+    moved.location = (1, 0, 0)
+    bpy.context.view_layer.update()  # The check reads matrix_world.
+    select_only(moved)
+    report = Validator(BlenderHost()).run()
+    print(report.as_text())
+    # The collection has no transform of its own, so only the moved object is reported.
+    assert messages(report, "ZeroTransforms") == ["moved is moved 1, 0, 0"]
+    assert report.get("RootNotEmpty").status == PASSED
+
+
+def test_an_empty_collection_root_is_reported_and_selecting_it_selects_its_objects():
+    root = make_collection_asset()
+    host = BlenderHost()
+    report = Validator(host).run(Validator(host).resolver.make_subject(host, root))
+    assert report.get("RootNotEmpty").status == FAILED
+
+    base = add_cube_to(root, "base")
+    select_only()
+    host.select([root])
+    assert base.select_get()
+
+
 def main():
     tests = [(name, func) for name, func in globals().items() if name.startswith("test_")]
     failed = 0

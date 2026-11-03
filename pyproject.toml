@@ -1,6 +1,6 @@
 [project]
 name = "publish-validator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Extensible pre-publish checks for 3D assets, with a native Blender panel."
 readme = "README.md"
 requires-python = ">=3.11"

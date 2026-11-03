@@ -1,7 +1,8 @@
-"""Blender host. Nodes are bpy Objects.
+"""Blender host. Nodes are bpy Objects and Collections.
 
-An asset root is usually an Empty with the asset parented under it, marked with
-custom properties (see PropertyResolver).
+An asset root is either an Empty with the asset parented under it, or a
+Collection holding the asset, marked with custom properties (see
+PropertyResolver). Selecting any object inside the asset finds its root.
 """
 
 import bmesh
@@ -25,9 +26,12 @@ class BlenderHost(Host):
         components = [t for t in targets if isinstance(t, Component)]
         objects = []
         for target in targets:
-            obj = target.node if isinstance(target, Component) else target
-            if isinstance(obj, bpy.types.Object) and obj not in objects:
-                objects.append(obj)
+            node = target.node if isinstance(target, Component) else target
+            # Selecting a collection selects the objects in it.
+            found = node.all_objects if isinstance(node, bpy.types.Collection) else [node]
+            for obj in found:
+                if isinstance(obj, bpy.types.Object) and obj not in objects:
+                    objects.append(obj)
 
         if bpy.context.mode != "OBJECT" and bpy.ops.object.mode_set.poll():
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -48,19 +52,34 @@ class BlenderHost(Host):
         return bpy.context.scene.objects.get(name)
 
     def parent(self, node):
-        return node.parent
+        """An object's parent object, or else the collection it's in; a collection's
+        parent collection. None at the top of the scene."""
+        if isinstance(node, bpy.types.Collection):
+            return next((c for c in scene_collections() if node in c.children.values()), None)
+        if node.parent is not None:
+            return node.parent
+        return next((c for c in node.users_collection if c in scene_collections()), None)
 
     def children(self, node):
+        """An object's children; a collection's child collections and top-level objects."""
+        if isinstance(node, bpy.types.Collection):
+            inside = set(node.all_objects)
+            top = [obj for obj in node.objects if obj.parent not in inside]
+            return [*node.children, *top]
         return list(node.children)
 
     def descendants(self, node):
+        """Every object below a node; for a collection, every object in it."""
+        if isinstance(node, bpy.types.Collection):
+            return list(node.all_objects)
         return list(node.children_recursive)
 
     def get_property(self, node, key, default=None):
         return node.get(key, default)
 
     def find_by_property(self, key):
-        return [obj for obj in bpy.context.scene.objects if key in obj]
+        nodes = [*bpy.context.scene.objects, *scene_collections()]
+        return [node for node in nodes if key in node]
 
     def node_name(self, node):
         if isinstance(node, Component):
@@ -69,9 +88,14 @@ class BlenderHost(Host):
 
     # Helpers for Blender checks.
 
+    def objects(self, root):
+        """The root, if it's an object, and every object below it."""
+        own = [] if isinstance(root, bpy.types.Collection) else [root]
+        return [*own, *self.descendants(root)]
+
     def meshes(self, root):
         """The root and everything below it that is a mesh."""
-        return [obj for obj in [root, *root.children_recursive] if obj.type == "MESH"]
+        return [obj for obj in self.objects(root) if obj.type == "MESH"]
 
     def fingerprint(self, root):
         """A cheap summary of the asset, to tell whether it changed since validating.
@@ -80,7 +104,7 @@ class BlenderHost(Host):
         positions. Selection is left out, so selecting things never changes it.
         """
         parts = []
-        for obj in [root, *root.children_recursive]:
+        for obj in self.objects(root):
             parent = obj.parent.name if obj.parent else ""
             matrix = tuple(round(value, 5) for row in obj.matrix_world for value in row)
             modifiers = tuple((m.type, m.show_viewport) for m in getattr(obj, "modifiers", ()))
@@ -110,6 +134,11 @@ class BlenderHost(Host):
             for child in obj.children:
                 child.matrix_parent_inverse = scale @ child.matrix_parent_inverse
         bpy.context.view_layer.update()
+
+
+def scene_collections():
+    """Every collection in the current scene (not the scene's own top collection)."""
+    return bpy.context.scene.collection.children_recursive
 
 
 def select_components(components):
