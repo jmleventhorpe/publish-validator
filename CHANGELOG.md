@@ -4,6 +4,16 @@ All notable changes to this project are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-11-21
+
+### Fixed
+
+- **Naming checks skip other assets placed in this one.** An empty instancing a
+  collection (another asset placed in a set, say), and linked or overridden
+  objects, keep whatever names they're given: Naming Convention and Mesh Data
+  Names no longer report them, so placing the same asset twice (crate,
+  crate.001) doesn't block the publish.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added

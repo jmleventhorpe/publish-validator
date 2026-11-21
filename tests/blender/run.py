@@ -391,6 +391,23 @@ def test_an_empty_collection_root_is_reported_and_selecting_it_selects_its_objec
     assert base.select_get()
 
 
+def test_other_assets_placed_in_one_keep_their_names():
+    root = make_collection_asset("street", asset_type="set")
+    add_cube_to(root, "road")
+    crate = bpy.data.collections.new("crate")  # As if linked from the crate's own file.
+    add_cube_to(crate, "crate_box")
+    for _ in range(2):  # Placed twice: crate, crate.001.
+        placed = bpy.data.objects.new("crate", None)
+        placed.instance_type, placed.instance_collection = "COLLECTION", crate
+        root.objects.link(placed)
+    add_cube_to(root, "wall.001")  # The set's own geometry is still checked.
+    select_only(bpy.data.objects["road"])
+    report = Validator(BlenderHost()).run()
+    assert messages(report, "NamingConvention") == [
+        "wall.001 has Blender's automatic number ending"
+    ]
+
+
 def main():
     tests = [(name, func) for name, func in globals().items() if name.startswith("test_")]
     failed = 0

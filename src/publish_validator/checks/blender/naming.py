@@ -10,7 +10,9 @@ class NamingConvention(Check):
     Proxy geometry, under the proxy group: seat_proxy.
     Use letters and digits only: no spaces, dots or dashes, and no Blender
     ".001" endings (number with leg001 instead). These names survive the
-    export to USD unchanged.
+    export to USD unchanged. Other assets placed in this one (an empty
+    instancing a collection, or linked or overridden objects) keep whatever
+    names they're given: they aren't this asset's geometry.
     """
 
     category = "Naming"
@@ -31,6 +33,8 @@ class NamingConvention(Check):
 
         for obj in ctx.host.descendants(ctx.root):
             name = obj.name
+            if from_another_asset(obj):
+                continue
             if obj.type == "EMPTY":
                 if name in self.settings["group_names"]:
                     continue
@@ -62,7 +66,8 @@ class MeshDataNames(Check):
     Blender names them the same when you create a mesh, but they drift apart as
     objects are renamed or duplicated, which makes exports and linking harder to
     follow. Rename the mesh data in the Object Data properties to match.
-    Meshes shared by several objects are skipped.
+    Meshes shared by several objects are skipped, as are other assets' (linked
+    or overridden) meshes.
     """
 
     category = "Naming"
@@ -71,8 +76,17 @@ class MeshDataNames(Check):
 
     def validate(self, ctx):
         for obj in ctx.host.meshes(ctx.root):
+            if from_another_asset(obj):
+                continue
             if obj.data.users == 1 and obj.data.name != obj.name:
                 yield self.issue(f"{obj.name} uses mesh data called {obj.data.name}", obj)
+
+
+def from_another_asset(obj):
+    """Whether an object stands for another asset placed in this one: an empty
+    instancing a collection, or an object linked or overridden from another file."""
+    instancing = obj.type == "EMPTY" and obj.instance_type == "COLLECTION"
+    return bool(instancing and obj.instance_collection) or bool(obj.library or obj.override_library)
 
 
 def parents(obj):
